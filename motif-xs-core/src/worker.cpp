@@ -129,4 +129,14 @@ void DeviceWorker::run() {
     }
 }
 
+std::shared_ptr<DeviceWorker> sharedWorker() {
+    static std::mutex mutex;
+    static std::weak_ptr<DeviceWorker> weak;
+    std::lock_guard lock(mutex);
+    if (auto existing = weak.lock()) return existing;
+    auto fresh = std::make_shared<DeviceWorker>();
+    weak = fresh;
+    return fresh;
+}
+
 }  // namespace motifxs

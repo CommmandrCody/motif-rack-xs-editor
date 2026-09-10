@@ -33,7 +33,7 @@ juce::String ParamKnob::format(int raw) const {
     return juce::String(raw);
 }
 
-MainComponent::MainComponent() {
+MainComponent::MainComponent(DeviceWorker& worker) : worker_(worker) {
     setLookAndFeel(&look_);
 
     juce::PropertiesFile::Options opts;

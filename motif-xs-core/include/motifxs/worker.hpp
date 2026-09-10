@@ -8,6 +8,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <memory>
 #include <condition_variable>
 #include <functional>
 #include <map>
@@ -75,5 +76,16 @@ private:
     std::function<void(Address, std::int32_t)> listener_;
     DeviceInfo info_;
 };
+
+/// The one connection every plugin instance in a host process shares.
+///
+/// CoreMIDI happily lets several clients write to the same destination, so two
+/// plugin instances each opening their own would interleave SysEx mid-message
+/// and corrupt each other -- and both would race on the reply. One connection,
+/// reference counted, released when the last instance goes.
+///
+/// Two instances addressing different Parts is legitimate and useful; they
+/// simply have to share the wire.
+[[nodiscard]] std::shared_ptr<DeviceWorker> sharedWorker();
 
 }  // namespace motifxs

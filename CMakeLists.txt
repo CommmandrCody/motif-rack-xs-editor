@@ -65,6 +65,43 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/JUCE/CMakeLists.txt")
         PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags)
+    # -----------------------------------------------------------------------
+    # VST3 / AU plugin (milestone 3). Shares MainComponent with the standalone
+    # app; the connection is injected, so both hosts drive the same UI.
+    # -----------------------------------------------------------------------
+    juce_add_plugin(motif-xs-plugin
+        PRODUCT_NAME "Motif Rack XS"
+        COMPANY_NAME "motifxs"
+        BUNDLE_ID "com.motifxs.plugin"
+        PLUGIN_MANUFACTURER_CODE Mtfx
+        PLUGIN_CODE Mrxs
+        FORMATS VST3 AU
+        IS_SYNTH FALSE
+        NEEDS_MIDI_INPUT TRUE
+        NEEDS_MIDI_OUTPUT FALSE
+        EDITOR_WANTS_KEYBOARD_FOCUS TRUE
+        COPY_PLUGIN_AFTER_BUILD TRUE
+        MICROPHONE_PERMISSION_ENABLED FALSE)
+
+    target_sources(motif-xs-plugin PRIVATE
+        motif-xs-plugin/PluginProcessor.cpp
+        motif-xs-plugin/PluginEditor.cpp
+        motif-xs-app/MainComponent.cpp)
+
+    target_include_directories(motif-xs-plugin PRIVATE motif-xs-app motif-xs-plugin)
+
+    target_compile_definitions(motif-xs-plugin PUBLIC
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+        JUCE_VST3_CAN_REPLACE_VST2=0)
+
+    target_link_libraries(motif-xs-plugin PRIVATE
+        motif-xs-core
+        juce::juce_audio_utils
+        juce::juce_gui_extra
+        PUBLIC
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_lto_flags)
 else()
     message(STATUS "external/JUCE not present -- skipping the standalone app")
 endif()

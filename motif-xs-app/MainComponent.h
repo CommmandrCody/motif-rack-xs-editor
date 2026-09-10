@@ -78,7 +78,10 @@ private:
 
 class MainComponent : public juce::Component, private juce::Timer {
 public:
-    MainComponent();
+    /// The connection is owned by the host (the standalone app, or the plugin
+    /// processor), not by the UI. A plugin editor is created and destroyed
+    /// every time the user opens the window; the connection must outlive that.
+    explicit MainComponent(motifxs::DeviceWorker&);
     ~MainComponent() override;
 
     void paint(juce::Graphics&) override;
@@ -99,7 +102,7 @@ private:
     void setStatus(const juce::String&, juce::Colour);
     void timerCallback() override;
 
-    motifxs::DeviceWorker worker_;
+    motifxs::DeviceWorker& worker_;
 
     // header
     juce::ComboBox portBox_;

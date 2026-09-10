@@ -4,8 +4,9 @@ A native macOS editor/controller for the Yamaha MOTIF-RACK XS, targeting
 Apple Silicon and Ableton Live. The hardware stays the sound engine; this makes
 it feel like a modern synth module inside a DAW.
 
-**Status: milestone 1 complete** — a command-line proof of concept that talks to
-real hardware, verified against a physical MOTIF-RACK XS.
+**Status: milestones 1-3 complete.** A CLI, a standalone GUI and a VST3/AU
+plugin, all driving a physical MOTIF-RACK XS. The plugin passes Apple's `auval`
+validation and stores the rack's whole Multi in the DAW project.
 
 ## Layout
 
@@ -13,7 +14,7 @@ real hardware, verified against a physical MOTIF-RACK XS.
 motif-xs-core/     reusable C++20 core -- no JUCE, no UI, no VST
 motif-xs-cli/      motifxs command line tool (milestone 1)
 motif-xs-app/      standalone GUI            (milestone 2)
-motif-xs-plugin/   VST3 / AU                 (milestone 3)
+motif-xs-plugin/   VST3 / AU -- builds, passes auval
 data/              machine-readable catalogs extracted from Yamaha docs
 docs/              protocol and architecture documentation
 tools/             extraction and code-generation scripts

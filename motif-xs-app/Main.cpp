@@ -1,5 +1,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include "motifxs/worker.hpp"
+
 #include "MainComponent.h"
 
 class MotifXsApplication : public juce::JUCEApplication {
@@ -20,15 +22,25 @@ private:
         explicit Window(const juce::String& name)
             : DocumentWindow(name, theme::bg, DocumentWindow::allButtons) {
             setUsingNativeTitleBar(true);
-            setContentOwned(new MainComponent(), true);
+            setContentOwned(new MainComponent(worker_), true);
             setResizable(true, true);
             setResizeLimits(980, 620, 3000, 2000);
             centreWithSize(getWidth(), getHeight());
             setVisible(true);
         }
+        ~Window() override {
+            // Members are destroyed before base classes, so worker_ would go
+            // first and DocumentWindow would then destroy MainComponent, whose
+            // destructor uses it. Drop the content while the worker is alive.
+            clearContentComponent();
+        }
+
         void closeButtonPressed() override {
             JUCEApplication::getInstance()->systemRequestedQuit();
         }
+
+    private:
+        motifxs::DeviceWorker worker_;
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Window)
     };
 
