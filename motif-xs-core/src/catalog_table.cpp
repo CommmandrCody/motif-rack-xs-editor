@@ -220,7 +220,7 @@ constexpr Voice kVoices[] = {
   {"PRE2", 63, 1, 85, "F06", "Hit It Hard AS2", "Guitar", "E.Cln", VoiceKind::Normal},
   {"PRE2", 63, 1, 86, "F07", "Paddy Clean", "Guitar", "E.Cln", VoiceKind::Normal},
   {"PRE2", 63, 1, 87, "F08", "Bluesy Clean Legato", "Guitar", "E.Cln", VoiceKind::Normal},
-  {"PRE2", 63, 1, 88, "F09", "Dual Coil ?65", "Guitar", "E.Dst", VoiceKind::Normal},
+  {"PRE2", 63, 1, 88, "F09", "Dual Coil '65", "Guitar", "E.Dst", VoiceKind::Normal},
   {"PRE2", 63, 1, 89, "F10", "Dual Coil Amp AS1", "Guitar", "E.Cln", VoiceKind::Normal},
   {"PRE2", 63, 1, 90, "F11", "Roto Guitar MW", "Guitar", "E.Cln", VoiceKind::Normal},
   {"PRE2", 63, 1, 91, "F12", "Dual Coil Slide Vel", "Guitar", "E.Cln", VoiceKind::Normal},

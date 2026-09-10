@@ -27,9 +27,15 @@ def cstr(s):
     s = str(s).replace("\\", "\\\\").replace('"', '\\"')
     s = s.replace("\n", " ").replace("\r", " ")
     # keep the generated source ASCII-clean
-    s = (s.replace("–", "-").replace("—", "-")
-          .replace("’", "'").replace("“", "'").replace("”", "'")
-          .replace("→", "->").replace("°", "deg"))
+    # Yamaha's PDFs use typographic punctuation; fold it to ASCII rather than
+    # letting the "?" fallback mangle names like "Dual Coil '65".
+    for src, dst in (("\u2013", "-"), ("\u2014", "-"),
+                     ("\u2018", "'"), ("\u2019", "'"),
+                     ("\u201c", "'"), ("\u201d", "'"),
+                     ("\u2192", "->"), ("\u00b0", "deg"),
+                     ("\u00d7", "x"), ("\u2026", "..."),
+                     ("\u221e", "inf")):
+        s = s.replace(src, dst)
     return '"' + "".join(c if 32 <= ord(c) < 127 else "?" for c in s) + '"'
 
 

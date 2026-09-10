@@ -50,7 +50,7 @@ MainComponent::MainComponent() {
         worker_.post([](Device& d) { d.panic(); });
         arpSwitch_.setToggleState(false, juce::dontSendNotification);
         arpHold_.setToggleState(false, juce::dontSendNotification);
-        setStatus("panic: all notes off, arpeggiators stopped", theme::warn);
+        setStatus("panic: all notes off, arpeggiators stopped on all 16 parts", theme::warn);
     };
     addAndMakeVisible(panicButton_);
 
@@ -72,16 +72,6 @@ MainComponent::MainComponent() {
         partButtons_[size_t(i)] = std::move(b);
     }
 
-    voiceHeader_.setFont(juce::FontOptions(12.0f, juce::Font::bold));
-    voiceHeader_.setColour(juce::Label::textColourId, theme::text);
-    voiceHeader_.setText("VOICE", juce::dontSendNotification);
-    addAndMakeVisible(voiceHeader_);
-
-    arpHeader_.setFont(juce::FontOptions(12.0f, juce::Font::bold));
-    arpHeader_.setColour(juce::Label::textColourId, theme::text);
-    arpHeader_.setText("ARPEGGIO", juce::dontSendNotification);
-    addAndMakeVisible(arpHeader_);
-
     voices_.onPick = [this](const Voice& v) {
         // Bank Select + Program Change on the part's own receive channel.
         worker_.post([this, v](Device& d) { d.selectVoice(v.msb, v.lsb, v.program, std::uint8_t(part_)); });
@@ -95,17 +85,26 @@ MainComponent::MainComponent() {
         dirty_ = true;
     };
 
+    arpNameLabel_.setFont(juce::FontOptions(12.0f));
+    arpNameLabel_.setColour(juce::Label::textColourId, theme::dim);
+    addAndMakeVisible(arpNameLabel_);
+
     arps_.onPick = [this](const Arpeggio& a) {
         const int slot = juce::jmax(1, arpSlot_.getSelectedId());
         // ARP SF1..SF5 Assign Type: 38 pp 38/3A/3C/3E/40
         const std::uint8_t low = std::uint8_t(0x38 + (slot - 1) * 2);
         if (const auto* p = findParameter(Scope::MultiPart, 0x38, 0x00, low))
             worker_.setParameter(*p, part_, a.number);
+        arpNameLabel_.setText(juce::String(std::string(a.name)), juce::dontSendNotification);
         setStatus("SF" + juce::String(slot) + ": " + juce::String(std::string(a.name)), theme::good);
     };
 
-    addAndMakeVisible(voices_);
-    addAndMakeVisible(arps_);
+    tabs_.setOutline(0);
+    tabs_.setTabBarDepth(28);
+    tabs_.addTab("VOICE", theme::bg, &voices_, false);
+    tabs_.addTab("ARPEGGIO", theme::bg, &arps_, false);
+    tabs_.setColour(juce::TabbedComponent::outlineColourId, juce::Colours::transparentBlack);
+    addAndMakeVisible(tabs_);
 
     arpSlot_.addItem("SF1", 1); arpSlot_.addItem("SF2", 2); arpSlot_.addItem("SF3", 3);
     arpSlot_.addItem("SF4", 4); arpSlot_.addItem("SF5", 5);
@@ -114,19 +113,25 @@ MainComponent::MainComponent() {
     addAndMakeVisible(arpSlot_);
 
     arpSwitch_.setClickingTogglesState(true);
-    arpSwitch_.setColour(juce::TextButton::buttonOnColourId, theme::accent);
+    arpSwitch_.setColour(juce::TextButton::buttonOnColourId, theme::warn);
+    arpSwitch_.setColour(juce::TextButton::textColourOnId, juce::Colours::black);
     arpSwitch_.onClick = [this] {
+        const bool on = arpSwitch_.getToggleState();
         if (const auto* p = findParameter(Scope::MultiPart, 0x38, 0x00, 0x00))
-            worker_.setParameter(*p, part_, arpSwitch_.getToggleState() ? 1 : 0);
+            worker_.setParameter(*p, part_, on ? 1 : 0);
+        updateArpWarning();
     };
     addAndMakeVisible(arpSwitch_);
 
     arpHold_.setClickingTogglesState(true);
-    arpHold_.setColour(juce::TextButton::buttonOnColourId, theme::accent);
+    // Hold is the one that latches: the phrase keeps going after key release.
+    arpHold_.setColour(juce::TextButton::buttonOnColourId, theme::bad);
+    arpHold_.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
     arpHold_.onClick = [this] {
         // ARP Hold: 0 sync-off, 1 off, 2 on
         if (const auto* p = findParameter(Scope::MultiPart, 0x38, 0x00, 0x07))
             worker_.setParameter(*p, part_, arpHold_.getToggleState() ? 2 : 1);
+        updateArpWarning();
     };
     addAndMakeVisible(arpHold_);
 
@@ -258,6 +263,7 @@ void MainComponent::pullPartState() {
             const bool on = *v != 0;
             juce::MessageManager::callAsync([this, on] {
                 arpSwitch_.setToggleState(on, juce::dontSendNotification);
+                updateArpWarning();
             });
         });
     if (const auto* hold = findParameter(Scope::MultiPart, 0x38, 0x00, 0x07))
@@ -266,6 +272,7 @@ void MainComponent::pullPartState() {
             const bool on = *v == 2;
             juce::MessageManager::callAsync([this, on] {
                 arpHold_.setToggleState(on, juce::dontSendNotification);
+                updateArpWarning();
             });
         });
 
@@ -275,8 +282,32 @@ void MainComponent::pullPartState() {
         worker_.readParameter(*assign, part, [this](std::optional<std::int32_t> v) {
             if (!v) return;
             const int number = *v;
-            juce::MessageManager::callAsync([this, number] { arps_.selectByNumber(number); });
+            juce::MessageManager::callAsync([this, number] {
+                arps_.selectByNumber(number);
+                const auto* meta = findArpeggio(number);
+                arpNameLabel_.setText(number == 0 ? juce::String("(no arp)")
+                                                  : (meta ? juce::String(std::string(meta->name))
+                                                          : juce::String(number)),
+                                      juce::dontSendNotification);
+            });
         });
+}
+
+/// Says plainly what a keypress will do, because an armed arpeggio means the
+/// voice you just picked is not what you will hear.
+void MainComponent::updateArpWarning() {
+    const bool on = arpSwitch_.getToggleState();
+    const bool hold = arpHold_.getToggleState();
+    if (!on) {
+        setStatus(worker_.isOpen() ? "connected" : "not connected",
+                  worker_.isOpen() ? theme::good : theme::dim);
+        return;
+    }
+    setStatus(hold ? "ARP armed + HOLD on part " + juce::String(part_ + 1) +
+                         " - a note starts a pattern that keeps playing"
+                   : "ARP armed on part " + juce::String(part_ + 1) +
+                         " - playing triggers a pattern, not the voice",
+              hold ? theme::bad : theme::warn);
 }
 
 void MainComponent::pushKnob(ParamKnob& k) {
@@ -306,6 +337,7 @@ void MainComponent::paint(juce::Graphics& g) {
 
     // selected part's voice name, the thing the eye should land on
     auto header = r.removeFromTop(34).reduced(12, 2);
+    header.removeFromRight(410);   // room for the arp controls
     g.setColour(theme::dim);
     g.setFont(juce::FontOptions(11.0f));
     g.drawText("PART " + juce::String(part_ + 1), header.removeFromLeft(60),
@@ -340,25 +372,19 @@ void MainComponent::resized() {
     for (int i = 0; i < 16; ++i)
         partButtons_[size_t(i)]->setBounds(strip.removeFromLeft(bw).reduced(2));
 
-    r.removeFromTop(34);  // voice-name header, painted
+    // voice-name header row: painted text on the left, arp controls on the right
+    auto nameRow = r.removeFromTop(34).reduced(12, 4);
+    arpHold_.setBounds(nameRow.removeFromRight(58).reduced(0, 1));
+    nameRow.removeFromRight(4);
+    arpSwitch_.setBounds(nameRow.removeFromRight(52).reduced(0, 1));
+    nameRow.removeFromRight(4);
+    arpSlot_.setBounds(nameRow.removeFromRight(68).reduced(0, 1));
+    nameRow.removeFromRight(8);
+    arpNameLabel_.setBounds(nameRow.removeFromRight(210));
 
     auto knobRow = r.removeFromBottom(112).reduced(14, 8);
     const int kw = knobRow.getWidth() / int(knobs_.size());
     for (auto& k : knobs_) k->setBounds(knobRow.removeFromLeft(kw).reduced(4));
 
-    auto body = r.reduced(10, 4);
-    auto left = body.removeFromLeft(body.getWidth() / 2 - 4);
-    body.removeFromLeft(8);
-
-    voiceHeader_.setBounds(left.removeFromTop(20));
-    voices_.setBounds(left);
-
-    auto arpTop = body.removeFromTop(20);
-    arpHeader_.setBounds(arpTop.removeFromLeft(90));
-    arpSlot_.setBounds(arpTop.removeFromLeft(70).reduced(0, 1));
-    arpTop.removeFromLeft(6);
-    arpSwitch_.setBounds(arpTop.removeFromLeft(54).reduced(0, 1));
-    arpTop.removeFromLeft(4);
-    arpHold_.setBounds(arpTop.removeFromLeft(58).reduced(0, 1));
-    arps_.setBounds(body);
+    tabs_.setBounds(r.reduced(10, 4));
 }

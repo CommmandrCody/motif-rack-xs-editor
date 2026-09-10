@@ -86,6 +86,7 @@ private:
     void selectPart(int part);
     void pullPartState();
     void pushKnob(ParamKnob&);
+    void updateArpWarning();
     void setStatus(const juce::String&, juce::Colour);
     void timerCallback() override;
 
@@ -104,11 +105,18 @@ private:
     VoiceBrowser voices_;
     ArpBrowser arps_;
 
-    juce::Label voiceHeader_, arpHeader_;
+    // Voice and Arpeggio each get the full width instead of sharing it. The
+    // common case is picking a voice; the arp browser was taking half the
+    // window to answer a question the user was not asking.
+    juce::TabbedComponent tabs_{juce::TabbedButtonBar::TabsAtTop};
+
     juce::TextButton panicButton_{"PANIC"};
+    // Arp state stays visible on every tab, so "what is armed on this part"
+    // never needs a tab switch -- it is also what latches and runs away.
     juce::TextButton arpSwitch_{"ARP"};
     juce::TextButton arpHold_{"HOLD"};
     juce::ComboBox arpSlot_;
+    juce::Label arpNameLabel_;
 
     std::array<std::unique_ptr<ParamKnob>, 9> knobs_;
 
