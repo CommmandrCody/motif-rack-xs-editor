@@ -36,12 +36,42 @@ MotifXsEditor::MotifXsEditor(MotifXsProcessor& p)
     };
     addAndMakeVisible(captureButton_);
 
+    // The part strip and the host's "part" parameter are one thing seen two
+    // ways: picking a part in the UI moves the parameter that automation
+    // targets, and host automation moves the UI.
+    ui_.onPartChanged = [this](int part) {
+        if (syncing_) return;
+        if (auto* p = processor_.apvts().getParameter("part")) {
+            const juce::ScopedValueSetter<bool> guard(syncing_, true);
+            p->setValueNotifyingHost(p->convertTo0to1(float(part + 1)));
+        }
+    };
+    processor_.apvts().addParameterListener("part", this);
+    if (auto* raw = processor_.apvts().getRawParameterValue("part")) {
+        const juce::ScopedValueSetter<bool> guard(syncing_, true);
+        ui_.setPart(int(raw->load()) - 1);
+    }
+
     setResizable(true, true);
     setResizeLimits(980, 620, 3000, 2000);
     setSize(1240, 800);
 }
 
-MotifXsEditor::~MotifXsEditor() { setLookAndFeel(nullptr); }
+MotifXsEditor::~MotifXsEditor() {
+    processor_.apvts().removeParameterListener("part", this);
+    ui_.onPartChanged = nullptr;
+    setLookAndFeel(nullptr);
+}
+
+void MotifXsEditor::parameterChanged(const juce::String& id, float value) {
+    if (id != "part" || syncing_) return;
+    // Automation arrives on the host's thread; touching the UI needs the
+    // message thread.
+    juce::MessageManager::callAsync([this, value] {
+        const juce::ScopedValueSetter<bool> guard(syncing_, true);
+        ui_.setPart(int(value) - 1);
+    });
+}
 
 void MotifXsEditor::paint(juce::Graphics& g) { g.fillAll(theme::bg); }
 

@@ -389,6 +389,7 @@ void MainComponent::selectPart(int part) {
                     i == part_ ? juce::Colours::black : theme::text);
     }
     pullPartState();
+    if (onPartChanged) onPartChanged(part_);
     repaint();
 }
 

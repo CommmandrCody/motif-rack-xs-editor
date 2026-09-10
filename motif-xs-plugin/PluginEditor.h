@@ -6,7 +6,8 @@
 
 /// The plugin window is the standalone app's UI plus a strip for project
 /// state, so there is one editor to maintain rather than two that drift.
-class MotifXsEditor : public juce::AudioProcessorEditor {
+class MotifXsEditor : public juce::AudioProcessorEditor,
+                      private juce::AudioProcessorValueTreeState::Listener {
 public:
     explicit MotifXsEditor(MotifXsProcessor&);
     ~MotifXsEditor() override;
@@ -15,6 +16,11 @@ public:
     void resized() override;
 
 private:
+    /// Keeps the part strip and the automatable "part" parameter in step,
+    /// in both directions, without letting them chase each other.
+    void parameterChanged(const juce::String& id, float value) override;
+    bool syncing_{false};
+
     MotifXsProcessor& processor_;
     MainComponent ui_;
 

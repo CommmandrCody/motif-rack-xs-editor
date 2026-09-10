@@ -84,6 +84,16 @@ public:
     explicit MainComponent(motifxs::DeviceWorker&);
     ~MainComponent() override;
 
+    /// Selects the part the UI is editing. In the plugin this is bound to the
+    /// automatable "part" parameter, so the part strip and the parameter the
+    /// host automates are the same thing rather than drifting apart.
+    void setPart(int part) { selectPart(part); }
+    [[nodiscard]] int currentPart() const { return part_; }
+
+    /// Fired when the user picks a part in the strip. The plugin uses this to
+    /// keep the host parameter in step.
+    std::function<void(int)> onPartChanged;
+
     void paint(juce::Graphics&) override;
     void resized() override;
 
