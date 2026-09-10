@@ -36,6 +36,7 @@ int usage() {
         "  motifxs arp-list [query]              search the arpeggio catalog\n"
         "  motifxs arp <slot 1-5> <number>       assign an arpeggio type\n"
         "  motifxs dump-state                    read the live edit buffer\n"
+        "  motifxs panic                         all notes off, arpeggiators off\n"
         "\n"
         "  --port <name>   use a specific MIDI port (default: MOTIF ... Port1)\n");
     return 1;
@@ -545,6 +546,13 @@ int main(int argc, char** argv) {
     if (cmd == "params") return cmdParams(n, rest);
     if (cmd == "arp-list") return cmdArpList(n, rest);
     if (cmd == "arp") return cmdArp(n, rest);
+    if (cmd == "panic") {
+        Device d;
+        if (!connect(d)) return 1;
+        d.panic();
+        std::puts("all notes off; ARP switch and hold cleared on all 16 parts");
+        return 0;
+    }
     if (cmd == "dump-state") return cmdDumpState();
     return usage();
 }

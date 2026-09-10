@@ -1,0 +1,122 @@
+#pragma once
+#include <juce_gui_basics/juce_gui_basics.h>
+
+#include <array>
+#include <memory>
+
+#include "motifxs/catalog.hpp"
+#include "motifxs/parameters.hpp"
+#include "motifxs/worker.hpp"
+
+#include "Browsers.h"
+#include "Theme.h"
+
+/// One labelled knob bound to a Multi Part parameter.
+class ParamKnob : public juce::Component {
+public:
+    ParamKnob(const juce::String& label, const char* parameterId)
+        : id_(parameterId) {
+        param_ = motifxs::findParameterById(parameterId);
+        jassert(param_ != nullptr);
+
+        name_.setText(label, juce::dontSendNotification);
+        name_.setJustificationType(juce::Justification::centred);
+        name_.setFont(juce::FontOptions(11.0f));
+        name_.setColour(juce::Label::textColourId, theme::dim);
+        addAndMakeVisible(name_);
+
+        slider_.setSliderStyle(juce::Slider::RotaryVerticalDrag);
+        slider_.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 56, 16);
+        slider_.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+        slider_.setColour(juce::Slider::textBoxTextColourId, theme::text);
+        if (param_) {
+            // Offset parameters are stored 0..127 with 64 as zero; show them
+            // the way the hardware does, centred on 0.
+            bipolar_ = param_->description.find("-64") != std::string_view::npos;
+            if (bipolar_) slider_.setRange(-64.0, 63.0, 1.0);
+            else slider_.setRange(param_->min, param_->max, 1.0);
+        }
+        slider_.textFromValueFunction = [this](double v) {
+            return format(bipolar_ ? int(v) + 64 : int(v));
+        };
+        slider_.valueFromTextFunction = [](const juce::String& s) { return s.getDoubleValue(); };
+        addAndMakeVisible(slider_);
+    }
+
+    void resized() override {
+        auto r = getLocalBounds();
+        name_.setBounds(r.removeFromTop(14));
+        slider_.setBounds(r);
+    }
+
+    /// Raw device value (0..127) -> displayed value.
+    void setRaw(int raw) {
+        slider_.setValue(bipolar_ ? raw - 64 : raw, juce::dontSendNotification);
+    }
+    [[nodiscard]] int raw() const {
+        const int v = int(slider_.getValue());
+        return bipolar_ ? v + 64 : v;
+    }
+
+    [[nodiscard]] const motifxs::Parameter* parameter() const { return param_; }
+    juce::Slider& slider() { return slider_; }
+
+    /// Formats a raw device value the way the rack's own display would.
+    [[nodiscard]] juce::String format(int raw) const;
+
+private:
+    const char* id_;
+    const motifxs::Parameter* param_{};
+    bool bipolar_{false};
+    juce::Label name_;
+    juce::Slider slider_;
+};
+
+class MainComponent : public juce::Component, private juce::Timer {
+public:
+    MainComponent();
+    ~MainComponent() override;
+
+    void paint(juce::Graphics&) override;
+    void resized() override;
+
+private:
+    void refreshPorts();
+    void connect();
+    void selectPart(int part);
+    void pullPartState();
+    void pushKnob(ParamKnob&);
+    void setStatus(const juce::String&, juce::Colour);
+    void timerCallback() override;
+
+    motifxs::DeviceWorker worker_;
+
+    // header
+    juce::ComboBox portBox_;
+    juce::TextButton connectButton_{"Connect"};
+    juce::Label statusLabel_, deviceLabel_;
+
+    // parts
+    std::array<std::unique_ptr<juce::TextButton>, 16> partButtons_;
+    std::array<juce::String, 16> partVoiceNames_;
+    int part_{0};
+
+    VoiceBrowser voices_;
+    ArpBrowser arps_;
+
+    juce::Label voiceHeader_, arpHeader_;
+    juce::TextButton panicButton_{"PANIC"};
+    juce::TextButton arpSwitch_{"ARP"};
+    juce::TextButton arpHold_{"HOLD"};
+    juce::ComboBox arpSlot_;
+
+    std::array<std::unique_ptr<ParamKnob>, 9> knobs_;
+
+    std::atomic<bool> dirty_{false};
+    juce::String pendingStatus_;
+    juce::Colour pendingStatusColour_{theme::dim};
+
+    theme::Look look_;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
+};

@@ -17,10 +17,45 @@ ROOT = Path(__file__).resolve().parent.parent
 PDF = ROOT / "reference" / "motifrackxs_datalist.pdf"
 
 BANK_RE = re.compile(r"^(PRE\d|USR\d|GM|Preset|User)\s*\(MSB=(\d+),\s*LSB=(\d+)\)")
-# greedy name leaves exactly the trailing 4 category codes + polyphony
+# Only the leading number and slot are matched by shape; everything after is
+# split on column position, because category values may contain spaces
+# ("H Hop") and a token-counting regex mis-splits those into the voice name.
+VOICE_HEAD = re.compile(r"^\s*(\d{1,3})\s+([A-H]\d{2})\s")
 VOICE_RE = re.compile(
     r"^\s*(\d{1,3})\s+([A-H]\d{2})\s+(.+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\d+)\s*$")
 DRUM_RE = re.compile(r"^\s*(\d{1,3})\s+(\S.*?)\s*$")
+
+
+def category_columns(lines):
+    """Character offsets of the five right-hand columns, from the data rows.
+
+    The header labels (Main / Sub / Main / Sub / Polyphony) are *centred* over
+    their columns while the cell content is left-aligned, so the labels are not
+    usable as column edges -- slicing at them cuts into the category text.
+
+    Instead the boundaries come from the vertical whitespace corridors that run
+    through every voice row. Categories that contain a space ("H Hop") do not
+    create a corridor, because the space has to line up in *all* rows to count.
+    The five rightmost columns are Category1 Main/Sub, Category2 Main/Sub and
+    Polyphony; everything left of them is number, slot and voice name.
+    """
+    rows = [l.rstrip() for l in lines if VOICE_HEAD.match(l)]
+    if len(rows) < 8:
+        return None
+    width = max(len(r) for r in rows)
+    occupied = [any(i < len(r) and r[i] != " " for r in rows) for i in range(width)]
+
+    spans, start = [], None
+    for i in range(width + 1):
+        filled = i < width and occupied[i]
+        if filled and start is None:
+            start = i
+        elif not filled and start is not None:
+            spans.append((start, i))
+            start = None
+    if len(spans) < 6:
+        return None
+    return [a for a, _ in spans[-5:]]
 
 
 def column_lines(page, left):
@@ -56,6 +91,7 @@ def parse_normal(pages):
         for left in (True, False):
             lines = column_lines(page, left)
             live = effective_banks(lines)
+            cols = category_columns(lines)
             for i, line in enumerate(lines):
                 m = BANK_RE.match(line.strip())
                 if m:
@@ -66,20 +102,38 @@ def parse_normal(pages):
                     continue
                 if not bank:
                     continue
-                v = VOICE_RE.match(line)
-                if not v:
+                head = VOICE_HEAD.match(line)
+                if not head:
                     continue
-                num = int(v.group(1))
+                num = int(head.group(1))
                 if not 1 <= num <= 128:
+                    continue
+
+                if cols:
+                    name = line[head.end():cols[0]].strip()
+                    c1m = line[cols[0]:cols[1]].strip()
+                    c1s = line[cols[1]:cols[2]].strip()
+                    c2m = line[cols[2]:cols[3]].strip()
+                    c2s = line[cols[3]:cols[4]].strip()
+                    poly = line[cols[4]:].strip().split()
+                    poly = int(poly[0]) if poly and poly[0].isdigit() else 0
+                else:
+                    v = VOICE_RE.match(line)
+                    if not v:
+                        continue
+                    name, c1m, c1s = v.group(3).strip(), v.group(4), v.group(5)
+                    c2m, c2s, poly = v.group(6), v.group(7), int(v.group(8))
+
+                if not name:
                     continue
                 out.append({
                     "bank": bank["name"], "msb": bank["msb"], "lsb": bank["lsb"],
                     "program": num - 1,
-                    "slot": v.group(2),
-                    "name": v.group(3).strip(),
-                    "category_main": v.group(4), "category_sub": v.group(5),
-                    "category2_main": v.group(6), "category2_sub": v.group(7),
-                    "polyphony": int(v.group(8)),
+                    "slot": head.group(2),
+                    "name": name,
+                    "category_main": c1m, "category_sub": c1s,
+                    "category2_main": c2m, "category2_sub": c2s,
+                    "polyphony": poly,
                     "type": "normal",
                 })
     return out, declared
@@ -105,7 +159,8 @@ def parse_drum(pages):
                 d = DRUM_RE.match(line)
                 if not d:
                     continue
-                num, name = int(d.group(1)), d.group(2).strip()
+                num = int(d.group(1))
+                name = re.split(r"\s{2,}", d.group(2).strip())[0].strip()
                 if not 1 <= num <= 128 or len(name) < 3 or name[0].isdigit():
                     continue
                 out.append({

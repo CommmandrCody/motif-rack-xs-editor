@@ -72,6 +72,14 @@ public:
     /// Bank Select MSB/LSB + Program Change on the given channel (0-based).
     void selectVoice(std::uint8_t msb, std::uint8_t lsb, std::uint8_t program, std::uint8_t channel = 0);
 
+    /// Silences everything: All Sound Off and All Notes Off on all 16 channels,
+    /// then ARP Switch off and ARP Hold off on all 16 Multi parts.
+    ///
+    /// An arpeggio with Hold on latches: one note starts it and releasing the
+    /// key does not stop it, so notes-off alone is not enough. Any controller
+    /// for this rack needs this within reach.
+    void panic();
+
     /// Called for every inbound SysEx message, on the MIDI read thread.
     void setSysExListener(std::function<void(const Bytes&)>);
 

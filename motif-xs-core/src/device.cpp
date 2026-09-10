@@ -249,4 +249,27 @@ void Device::selectVoice(std::uint8_t msb, std::uint8_t lsb, std::uint8_t progra
     send(m);
 }
 
+void Device::panic() {
+    if (!isOpen()) return;
+
+    // Notes first, so the sound stops as fast as possible.
+    Bytes cc;
+    for (std::uint8_t ch = 0; ch < 16; ++ch) {
+        const std::uint8_t status = std::uint8_t(0xB0 | ch);
+        cc.insert(cc.end(), {status, 0x78, 0x00});   // All Sound Off
+        cc.insert(cc.end(), {status, 0x7B, 0x00});   // All Notes Off
+    }
+    send(cc);
+
+    // Then stop the arpeggiators, or a held arp simply retriggers.
+    // ARP Switch 38 pp 00 -> off(0); ARP Hold 38 pp 07 -> off(1), since the
+    // encoding is 0 sync-off, 1 off, 2 on.
+    for (std::uint8_t part = 0; part < 16; ++part) {
+        const std::uint8_t off = 0x00;
+        const std::uint8_t holdOff = 0x01;
+        send(parameterChange(impl_->deviceNumber, {0x38, part, 0x00}, {&off, 1}));
+        send(parameterChange(impl_->deviceNumber, {0x38, part, 0x07}, {&holdOff, 1}));
+    }
+}
+
 }  // namespace motifxs
