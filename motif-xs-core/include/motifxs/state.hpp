@@ -79,6 +79,29 @@ bool restoreState(Device&, const State&,
                   std::function<void(int, int)> progress = {},
                   std::chrono::milliseconds interBlockDelay = std::chrono::milliseconds{15});
 
+/// Captures one part's voice: Common plus all eight Elements for a Normal
+/// Voice, or Common plus the 73 keys for a Drum Voice. About 2 kB.
+///
+/// This is the unit of a "custom patch": an edited voice, saved whole. The rack
+/// can only hold 16 such voices itself (Mixing Voices, bank LSB 60) and only
+/// inside the current Multi; as files they are unlimited and portable.
+[[nodiscard]] std::optional<State> captureVoice(
+    Device&, int part,
+    std::chrono::milliseconds quietTime = std::chrono::milliseconds{400});
+
+/// Applies a captured voice to a part, which need not be the part it came from.
+///
+/// The part lives in the low byte of the Bulk Header and Footer, so those are
+/// re-addressed and their checksums recomputed; the blocks between carry no
+/// part index and pass through untouched. Writing a voice this way works for
+/// any part, unlike Parameter Change, which has no part index for the 40/41/42
+/// blocks and only ever reaches the part the front panel has selected.
+bool applyVoice(Device&, const State&, int targetPart,
+                std::chrono::milliseconds interBlockDelay = std::chrono::milliseconds{15});
+
+/// The voice name held in a captured voice, read from its Common block.
+[[nodiscard]] std::string voiceName(const State&);
+
 /// Text serialisation: a small header then one hex line per SysEx message.
 /// Chosen over binary so a saved state can be read, diffed and pasted into a
 /// bug report, and over JSON so the core needs no parser.

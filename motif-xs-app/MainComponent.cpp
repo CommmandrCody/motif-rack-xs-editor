@@ -101,6 +101,13 @@ MainComponent::MainComponent(DeviceWorker& worker) : worker_(worker) {
     };
     addAndMakeVisible(auditionButton_);
 
+    saveVoiceButton_.setTooltip("Save this part's voice, including your edits, as a custom patch");
+    loadVoiceButton_.setTooltip("Apply a custom patch to this part");
+    saveVoiceButton_.onClick = [this] { saveCustomPatch(); };
+    loadVoiceButton_.onClick = [this] { loadCustomPatch(); };
+    addAndMakeVisible(saveVoiceButton_);
+    addAndMakeVisible(loadVoiceButton_);
+
     voices_.onPick = [this](const Voice& v) {
         // Bank Select + Program Change on the part's own receive channel.
         worker_.post([this, v](Device& d) { d.selectVoice(v.msb, v.lsb, v.program, std::uint8_t(part_)); });
@@ -331,6 +338,80 @@ void MainComponent::connect() {
                               theme::warn);
             });
         pullPartState();
+    });
+}
+
+void MainComponent::saveCustomPatch() {
+    if (!worker_.isOpen()) {
+        setStatus("connect to the rack first", theme::warn);
+        return;
+    }
+    const int part = part_;
+    chooser_ = std::make_unique<juce::FileChooser>(
+        "Save this part's voice as a custom patch",
+        juce::File::getSpecialLocation(juce::File::userMusicDirectory), "*.motifxs");
+    chooser_->launchAsync(juce::FileBrowserComponent::saveMode |
+                              juce::FileBrowserComponent::warnAboutOverwriting,
+                          [this, part](const juce::FileChooser& fc) {
+        const auto file = fc.getResult();
+        if (file == juce::File{}) return;
+        setStatus("capturing part " + juce::String(part + 1) + "'s voice...", theme::dim);
+        worker_.post([this, part, file](Device& d) {
+            auto v = captureVoice(d, part);
+            if (!v) {
+                setStatus("part " + juce::String(part + 1) + " sent no voice data", theme::bad);
+                return;
+            }
+            std::string err;
+            const auto path = file.withFileExtension("motifxs").getFullPathName().toStdString();
+            if (!saveStateFile(*v, path, &err)) {
+                setStatus(juce::String(err), theme::bad);
+                return;
+            }
+            setStatus("saved '" + juce::String(voiceName(*v)) + "'", theme::good);
+        });
+    });
+}
+
+void MainComponent::loadCustomPatch() {
+    if (!worker_.isOpen()) {
+        setStatus("connect to the rack first", theme::warn);
+        return;
+    }
+    const int part = part_;
+    chooser_ = std::make_unique<juce::FileChooser>(
+        "Apply a custom patch to this part",
+        juce::File::getSpecialLocation(juce::File::userMusicDirectory), "*.motifxs");
+    chooser_->launchAsync(juce::FileBrowserComponent::openMode |
+                              juce::FileBrowserComponent::canSelectFiles,
+                          [this, part](const juce::FileChooser& fc) {
+        const auto file = fc.getResult();
+        if (file == juce::File{}) return;
+        const auto path = file.getFullPathName().toStdString();
+        worker_.post([this, part, path](Device& d) {
+            std::string err;
+            auto v = loadStateFile(path, &err);
+            if (!v) {
+                setStatus(juce::String(err), theme::bad);
+                return;
+            }
+            if (voiceName(*v).empty()) {
+                setStatus("that file is a full rig capture, not a single voice - "
+                          "use LOAD instead", theme::warn);
+                return;
+            }
+            applyVoice(d, *v, part);
+            const juce::String nm(voiceName(*v));
+            setStatus("applied '" + nm + "' to part " + juce::String(part + 1), theme::good);
+            juce::MessageManager::callAsync([this, part, nm] {
+                partVoiceNames_[size_t(part)] = nm;
+                juce::Timer::callAfterDelay(300, [this] {
+                    refreshElementPage();
+                    refreshDrumPage();
+                });
+                repaint();
+            });
+        });
     });
 }
 
@@ -811,7 +892,11 @@ void MainComponent::resized() {
 
     auto tabRow = r.removeFromTop(28);
     auditionButton_.setBounds(tabRow.removeFromRight(96).reduced(10, 2));
+    loadVoiceButton_.setBounds(tabRow.removeFromRight(92).reduced(2, 2));
+    saveVoiceButton_.setBounds(tabRow.removeFromRight(92).reduced(2, 2));
     r = r.withTop(tabRow.getY());
     tabs_.setBounds(r.reduced(10, 4));
     auditionButton_.toFront(false);   // stay clickable above the tab bar
+    saveVoiceButton_.toFront(false);
+    loadVoiceButton_.toFront(false);
 }

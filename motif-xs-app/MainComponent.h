@@ -158,6 +158,13 @@ private:
     // Clicking a voice should let you hear it; browsing 1217 voices silently
     // is not browsing, it is reading a list.
     juce::TextButton auditionButton_{"AUDITION"};
+    // A voice edited on the rack exists only in the part's edit buffer. These
+    // save it whole as a file and put it back on any part, which is the only
+    // way an edit outlives a patch change.
+    juce::TextButton saveVoiceButton_{"SAVE PATCH"};
+    juce::TextButton loadVoiceButton_{"LOAD PATCH"};
+    void saveCustomPatch();
+    void loadCustomPatch();
     int auditionNote_{60};
     void audition();
     void stopAudition();

@@ -42,6 +42,8 @@ int usage() {
         "  motifxs save <file> [note]            capture the whole Multi to a file\n"
         "  motifxs load <file>                   restore a captured Multi\n"
         "  motifxs show <file>                   describe a saved state file\n"
+        "  motifxs voice-save <part> <file>      save one part's voice as a custom patch\n"
+        "  motifxs voice-load <part> <file>      apply a custom patch to a part\n"
         "  motifxs panic                         all notes off, arpeggiators off\n"
         "  motifxs send <hex>...                 send raw MIDI bytes (e.g. B0 00 3F C0 00)\n"
         "  motifxs dump <HH> <MM> <LL>           request a block by bulk dump\n"
@@ -587,6 +589,53 @@ int main(int argc, char** argv) {
             return 1;
         }
         std::printf("saved %s  (%s)\n", rest[0], st->summary().c_str());
+        return 0;
+    }
+    if (cmd == "voice-save") {
+        if (n < 2) return usage();
+        const auto part = toLong(rest[0]);
+        if (!part || *part < 1 || *part > 16) {
+            std::fprintf(stderr, "error: part must be 1..16\n");
+            return 1;
+        }
+        Device d;
+        DeviceInfo info;
+        if (!connectAndIdentify(d, &info)) return 1;
+        auto v = captureVoice(d, int(*part) - 1);
+        if (!v) {
+            std::fprintf(stderr, "error: part %ld sent no voice data\n", *part);
+            return 1;
+        }
+        v->firmware = info.firmwareVersion;
+        std::string err;
+        if (!saveStateFile(*v, rest[1], &err)) {
+            std::fprintf(stderr, "error: %s\n", err.c_str());
+            return 1;
+        }
+        std::printf("saved part %ld's voice '%s' to %s  (%s)\n", *part,
+                    voiceName(*v).c_str(), rest[1], v->summary().c_str());
+        return 0;
+    }
+    if (cmd == "voice-load") {
+        if (n < 2) return usage();
+        const auto part = toLong(rest[0]);
+        if (!part || *part < 1 || *part > 16) {
+            std::fprintf(stderr, "error: part must be 1..16\n");
+            return 1;
+        }
+        std::string err;
+        auto v = loadStateFile(rest[1], &err);
+        if (!v) {
+            std::fprintf(stderr, "error: %s\n", err.c_str());
+            return 1;
+        }
+        Device d;
+        if (!connectAndIdentify(d)) return 1;
+        if (!applyVoice(d, *v, int(*part) - 1)) {
+            std::fprintf(stderr, "error: could not apply the voice\n");
+            return 1;
+        }
+        std::printf("applied '%s' to part %ld\n", voiceName(*v).c_str(), *part);
         return 0;
     }
     if (cmd == "show") {

@@ -139,10 +139,33 @@ A full capture is therefore the Multi plus 16 part voices: 423 blocks, ~29 kB,
 about 5 seconds. Round-trip **[verified]**: an element level changed from 39 to
 120 and a part volume changed from 63 to 30 both came back exactly.
 
-Note this softens, but does not remove, the front-panel limitation. Reading a
-part's voice is possible for any part, by bulk dump. *Writing* individual voice
-parameters still is not -- Parameter Change carries no part index for the
-`40/41/42` blocks -- so live editing still applies to the selected part.
+Note this softens the front-panel limitation considerably. By bulk dump, a
+part's voice can be both **read and written** for any part. What still cannot be
+addressed per part is an *individual* voice parameter: Parameter Change carries
+no part index for the `40/41/42` blocks, so turning a single knob still applies
+to whichever part the front panel has selected.
+
+### Custom patches
+
+That read-and-write-any-part property is what makes an edited voice portable. A
+voice edited on the rack lives only in a part's edit buffer and dies at the next
+patch change; captured whole to a file, it can be put back on any part later.
+
+The rack has its own version of this -- Mixing Voices, bank LSB 60 -- but only
+16 of them, and only inside the current Multi. As files they are unlimited and
+move between Multis, projects and racks.
+
+The part number lives in the low byte of the Bulk Header and Footer, so applying
+a voice to a different part means re-addressing those two messages and
+recomputing their checksums; the blocks between carry no part index and pass
+through untouched.
+
+**[verified]** Part 1's organ was edited (16' drawbar 127 -> 20), saved, and
+applied to part 5. Part 5 came back holding "1972 AS1" with element 1 level 20 --
+the edit, on a different part.
+
+`motifxs voice-save <part> <file>` / `voice-load <part> <file>`, and
+**SAVE PATCH** / **LOAD PATCH** in the app.
 
 Capturing verbatim beats a curated parameter list: nothing is quietly omitted,
 and it restores as the same blocks, so the ordering hazard below does not

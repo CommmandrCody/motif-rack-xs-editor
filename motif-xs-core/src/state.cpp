@@ -150,6 +150,66 @@ std::optional<State> captureState(Device& device, std::function<void(int)> progr
     return state;
 }
 
+std::optional<State> captureVoice(Device& device, int part,
+                                  std::chrono::milliseconds quietTime) {
+    if (!device.isOpen() || part < 0 || part >= kParts) return std::nullopt;
+    auto msgs = requestSequence(device, partVoiceHeader(part), partVoiceFooter(part).high,
+                                quietTime, {}, 0);
+    if (msgs.empty()) return std::nullopt;
+
+    State s;
+    s.deviceNumber = device.deviceNumber();
+    s.capturedAt = nowIso8601();
+    s.messages = std::move(msgs);
+    s.note = voiceName(s);
+    return s;
+}
+
+std::string voiceName(const State& s) {
+    // The Common block leads with 20 bytes of ASCII, for both Normal (40 00 00)
+    // and Drum (46 00 00) voices.
+    for (const auto& m : s.messages) {
+        const auto b = parseBulkDump(m);
+        if (!b) continue;
+        if ((b->address.high != 0x40 && b->address.high != 0x46) ||
+            b->address.mid != 0x00 || b->address.low != 0x00)
+            continue;
+        std::string name;
+        for (std::size_t i = 0; i < 20 && i < b->data.size(); ++i) {
+            const char c = char(b->data[i]);
+            if (c >= 32 && c < 127) name.push_back(c);
+        }
+        while (!name.empty() && name.back() == ' ') name.pop_back();
+        return name;
+    }
+    return {};
+}
+
+bool applyVoice(Device& device, const State& voice, int targetPart,
+                std::chrono::milliseconds interBlockDelay) {
+    if (!device.isOpen() || voice.messages.empty()) return false;
+    if (targetPart < 0 || targetPart >= kParts) return false;
+
+    for (const auto& original : voice.messages) {
+        Bytes m = original;
+        if (m.size() > 2)
+            m[2] = std::uint8_t((m[2] & 0xF0) | (device.deviceNumber() & 0x0F));
+
+        const auto parsed = parseBulkDump(m);
+        // Re-address the header and footer to the target part, then fix the
+        // checksum, which covers the byte count, address and data.
+        if (parsed && (parsed->address.high == 0x0E || parsed->address.high == 0x0F) &&
+            parsed->address.mid == 0x30 && m.size() >= 12) {
+            m[9] = std::uint8_t(targetPart & 0x0F);              // address low
+            const std::size_t counted = m.size() - 7;            // count..data
+            m[m.size() - 2] = checksum(std::span<const std::uint8_t>(m).subspan(5, counted));
+        }
+        device.send(m);
+        std::this_thread::sleep_for(interBlockDelay);
+    }
+    return true;
+}
+
 bool restoreState(Device& device, const State& state,
                   std::function<void(int, int)> progress,
                   std::chrono::milliseconds interBlockDelay) {

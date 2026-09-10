@@ -70,6 +70,10 @@ Auto-connects to MOTIF-RACK XS Port1 and reads the rack's live state.
 * **SAVE / LOAD** -- capture the whole rig to a file and restore it: the Multi
   (every part, arp and effect) *and* all 16 part voices, so voice-level edits
   survive too. 423 blocks, ~29 kB, about 5 seconds. See `docs/state-sync.md`
+* **SAVE PATCH / LOAD PATCH** -- an edited voice lives only in a part's edit
+  buffer and dies at the next patch change. Save it whole as a file and put it
+  back on any part. The rack manages 16 of these (Mixing Voices) and only within
+  one Multi; as files they are unlimited
 * **THRU** -- forward the rack's arpeggiator to another instrument (an
   INTEGRA-7, say); see `docs/midi-routing.md`
 * **ARP -> DAW** (plugin only) -- relay the arpeggiator into the host track as
@@ -94,6 +98,8 @@ Auto-connects to MOTIF-RACK XS Port1 and reads the rack's live state.
 ./build/motifxs save live-set.motifxs      # capture the whole Multi
 ./build/motifxs show live-set.motifxs      # what a saved file holds
 ./build/motifxs load live-set.motifxs      # restore it
+./build/motifxs voice-save 1 my-organ.motifxs   # one part's voice, edits and all
+./build/motifxs voice-load 5 my-organ.motifxs   # ...onto any part
 ./build/motifxs thru "INTEGRA-7" 30        # forward the arp to another device
 ./build/motifxs panic                      # all notes off, arpeggiators off
 ./build/motifxs dump-state                 # read the live edit buffer
