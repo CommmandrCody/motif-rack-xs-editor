@@ -178,6 +178,38 @@ in Multi mode, which `Power on Mode = multi` makes permanent.
 `drum-architecture.md`, `arp-architecture.md`, `multi-architecture.md`,
 `state-sync.md`, `vst-architecture.md`, `midi-routing.md`.
 
+## Licence
+
+**AGPL-3.0**, because this links JUCE, which is dual-licensed AGPLv3 or
+commercial. If you build on this, your work inherits those terms.
+
+The VST3 SDK is MIT since late 2025, so it imposes nothing.
+
+### About the data
+
+`data/*.json` holds facts extracted from Yamaha's published documentation:
+parameter addresses, sizes and ranges, and the factory voice, arpeggio and
+waveform lists. The PDFs themselves are **not** redistributed here -- they are
+in `.gitignore`. Every file under `data/` can be regenerated from your own copy
+of Yamaha's documents with the scripts in `tools/`, which is also how you would
+check them.
+
+MOTIF-RACK XS, MOTIF and Yamaha are trademarks of Yamaha Corporation. This
+project is not affiliated with or endorsed by Yamaha.
+
+## Contributing
+
+The most useful thing anyone could add is **another device**. The parameter
+model is data-driven -- a device is a table, not a code path -- so a MOTIF XS or
+XF keyboard is mostly a matter of extracting its Data List and confirming the
+model ID and address map against hardware. The extraction tools in `tools/` are
+written to be pointed at a different PDF.
+
+If you do that, please keep the discipline the rest of the project uses: read
+every address back off the real instrument before writing it down, and mark
+anything the documentation gets wrong. It gets things wrong more than you would
+expect -- see the list above.
+
 ## Approach
 
 Published specification → hardware experiment → captured behaviour →
