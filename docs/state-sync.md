@@ -104,6 +104,7 @@ Requesting a bulk dump at the **Bulk Header for the Multi edit buffer**
 | Part 1-16 arpeggio | 66 each |
 | Audio In Part | 8 |
 | **41 messages, 39 data blocks** | **2265 bytes** |
+| *plus* each part's voice, `0E 30 nn` | 26 messages each |
 
 Every payload matches the documented Bulk Dump Block byte counts exactly.
 
@@ -115,6 +116,33 @@ those addresses are listed in the Bulk Dump Block table and answer Parameter
 Requests perfectly well. Only the System blocks (`00 00 00`, `00 20 00`) dump
 individually. Bulk dumps of voice and multi data must go through the Bulk
 Header.
+
+### The Multi is not enough on its own
+
+A Multi records each part's bank and program -- a *reference* to a patch. Edit
+the voice itself and the Multi does not change, so a Multi-only capture brings
+back the stored patch and **silently discards every edit made to it**. Pull the
+drawbars on an organ, save, reload, and you get the factory registration back.
+
+**[verified]** The fix is the Bulk Header for a part's voice edit buffer,
+`0E 30 nn`, where `nn` is the part. Requesting a dump there returns that part's
+entire voice -- Common plus all eight Elements (26 messages, ~2 kB), or Common
+plus the 73 keys for a Drum Voice.
+
+Crucially it is addressed **per part** and does not depend on the rack's
+front-panel selection: `0E 30 00`..`03` returned "1972 AS1", "Kompressor",
+"Cell Division" and "Felicity", matching parts 1-4 exactly. That is unlike
+Parameter Requests to `40/41/42`, which only ever answer for whichever part the
+front panel has selected.
+
+A full capture is therefore the Multi plus 16 part voices: 423 blocks, ~29 kB,
+about 5 seconds. Round-trip **[verified]**: an element level changed from 39 to
+120 and a part volume changed from 63 to 30 both came back exactly.
+
+Note this softens, but does not remove, the front-panel limitation. Reading a
+part's voice is possible for any part, by bulk dump. *Writing* individual voice
+parameters still is not -- Parameter Change carries no part index for the
+`40/41/42` blocks -- so live editing still applies to the selected part.
 
 Capturing verbatim beats a curated parameter list: nothing is quietly omitted,
 and it restores as the same blocks, so the ordering hazard below does not

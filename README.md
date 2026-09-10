@@ -67,9 +67,9 @@ Auto-connects to MOTIF-RACK XS Port1 and reads the rack's live state.
 * Nine PERFORM macros (volume, pan, cutoff, reso, attack, decay, release,
   reverb, chorus) bound to Multi Part offsets, so they shift all eight elements
   together the way the rack's own knobs do
-* **SAVE / LOAD** -- capture the whole Multi (39 blocks: every part, arp and
-  effect) to a file and restore it, so a DAW session can get its rack setup
-  back. See `docs/state-sync.md`
+* **SAVE / LOAD** -- capture the whole rig to a file and restore it: the Multi
+  (every part, arp and effect) *and* all 16 part voices, so voice-level edits
+  survive too. 423 blocks, ~29 kB, about 5 seconds. See `docs/state-sync.md`
 * **THRU** -- forward the rack's arpeggiator to another instrument (an
   INTEGRA-7, say); see `docs/midi-routing.md`
 * **ARP -> DAW** (plugin only) -- relay the arpeggiator into the host track as

@@ -62,56 +62,91 @@ std::size_t State::payloadBytes() const {
 }
 
 std::string State::summary() const {
-    int blocks = 0, parts = 0;
+    int blocks = 0, parts = 0, voices = 0;
     for (const auto& m : messages) {
         const auto b = parseBulkDump(m);
         if (!b) continue;
-        if (b->address.high == 0x0E || b->address.high == 0x0F) continue;  // header/footer
+        if (b->address.high == 0x0F) continue;              // footer
+        if (b->address.high == 0x0E) {
+            if (b->address.mid == 0x30) ++voices;            // one per part voice
+            continue;
+        }
         ++blocks;
         if (b->address.high == 0x37) ++parts;
     }
     std::ostringstream os;
-    os << blocks << " blocks, " << parts << " parts, " << payloadBytes() << " bytes";
+    os << blocks << " blocks, " << parts << " parts";
+    if (voices) os << ", " << voices << " voices";
+    os << ", " << payloadBytes() << " bytes";
     return os.str();
 }
 
+namespace {
+
+/// Requests one bulk sequence and collects blocks until its footer, then a
+/// short quiet period in case anything trails it. Returns what arrived.
+std::vector<Bytes> requestSequence(Device& device, Address header,
+                                   std::uint8_t footerHigh,
+                                   std::chrono::milliseconds quietTime,
+                                   std::function<void(int)> progress,
+                                   int alreadyHave) {
+    std::vector<Bytes> received;
+    std::atomic<bool> sawFooter{false};
+    device.setSysExListener([&](const Bytes& m) {
+        const auto b = parseBulkDump(m);
+        if (!b) return;
+        received.push_back(m);
+        if (b->address.high == footerHigh) sawFooter.store(true);
+    });
+
+    device.send(dumpRequest(device.deviceNumber(), header));
+
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{8};
+    std::size_t lastCount = 0;
+    auto lastChange = std::chrono::steady_clock::now();
+    while (std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds{10});
+        if (received.size() != lastCount) {
+            lastCount = received.size();
+            lastChange = std::chrono::steady_clock::now();
+            if (progress) progress(alreadyHave + int(lastCount));
+        }
+        // The footer is a definitive terminator, so once it lands only a brief
+        // settle is needed. Waiting the full quiet time after every sequence
+        // turned a 17-request capture into fifteen seconds of mostly idling.
+        const auto settle = sawFooter.load() ? std::chrono::milliseconds{80} : quietTime;
+        if (sawFooter.load() && std::chrono::steady_clock::now() - lastChange > settle) break;
+    }
+    device.setSysExListener({});
+    return received;
+}
+
+}  // namespace
+
 std::optional<State> captureState(Device& device, std::function<void(int)> progress,
-                                  std::chrono::milliseconds quietTime) {
+                                  std::chrono::milliseconds quietTime, CaptureScope scope) {
     if (!device.isOpen()) return std::nullopt;
 
     State state;
     state.deviceNumber = device.deviceNumber();
     state.capturedAt = nowIso8601();
 
-    std::vector<Bytes> received;
-    bool sawFooter = false;
-    device.setSysExListener([&](const Bytes& m) {
-        const auto b = parseBulkDump(m);
-        if (!b) return;
-        received.push_back(m);
-        if (b->address.high == kMultiEditBufferFooter.high) sawFooter = true;
-    });
+    auto multi = requestSequence(device, kMultiEditBufferHeader,
+                                 kMultiEditBufferFooter.high, quietTime, progress, 0);
+    if (multi.empty()) return std::nullopt;
+    state.messages = std::move(multi);
 
-    device.send(dumpRequest(device.deviceNumber(), kMultiEditBufferHeader));
-
-    // The rack streams the whole Multi unprompted; wait for the footer, then a
-    // short quiet period in case anything trails it.
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{8};
-    std::size_t lastCount = 0;
-    auto lastChange = std::chrono::steady_clock::now();
-    while (std::chrono::steady_clock::now() < deadline) {
-        std::this_thread::sleep_for(std::chrono::milliseconds{20});
-        if (received.size() != lastCount) {
-            lastCount = received.size();
-            lastChange = std::chrono::steady_clock::now();
-            if (progress) progress(int(lastCount));
+    if (scope == CaptureScope::WithVoices) {
+        // A Multi records each part's bank and program -- a reference to a
+        // patch. Without the voice buffers, restoring brings back the stored
+        // patch and silently discards every edit made to it.
+        for (int part = 0; part < kParts; ++part) {
+            auto voice = requestSequence(device, partVoiceHeader(part),
+                                         partVoiceFooter(part).high, quietTime, progress,
+                                         int(state.messages.size()));
+            state.messages.insert(state.messages.end(), voice.begin(), voice.end());
         }
-        if (sawFooter && std::chrono::steady_clock::now() - lastChange > quietTime) break;
     }
-    device.setSysExListener({});
-
-    if (received.empty()) return std::nullopt;
-    state.messages = std::move(received);
     return state;
 }
 

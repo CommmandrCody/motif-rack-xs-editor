@@ -26,6 +26,24 @@ namespace motifxs {
 inline constexpr Address kMultiEditBufferHeader{0x0E, 0x5F, 0x00};
 inline constexpr Address kMultiEditBufferFooter{0x0F, 0x5F, 0x00};
 
+/// Bulk Header for one Multi Part's *voice* edit buffer; the low byte is the
+/// part, 0-15. Requesting a dump here returns that part's whole voice: Common
+/// plus all eight Elements for a Normal Voice, or Common plus the 73 keys for a
+/// Drum Voice.
+///
+/// This is what makes voice-level edits recoverable. A Multi stores each part's
+/// bank and program -- a *reference* to a patch -- so a Multi dump alone brings
+/// back the stored patch, not the edits made to it. It is also addressed per
+/// part, unlike Parameter Requests to 40/41/42, which only ever answer for
+/// whichever part the rack's front panel has selected.
+[[nodiscard]] inline constexpr Address partVoiceHeader(int part) {
+    return {0x0E, 0x30, std::uint8_t(part & 0x0F)};
+}
+[[nodiscard]] inline constexpr Address partVoiceFooter(int part) {
+    return {0x0F, 0x30, std::uint8_t(part & 0x0F)};
+}
+inline constexpr int kParts = 16;
+
 struct State {
     int schemaVersion{1};
     std::string device{"Yamaha MOTIF-RACK XS"};
@@ -42,11 +60,18 @@ struct State {
     [[nodiscard]] std::string summary() const;
 };
 
-/// Requests the whole Multi and collects blocks until the footer arrives.
-/// `progress` receives (messagesSoFar) as they land.
+/// What a capture should include.
+enum class CaptureScope {
+    MultiOnly,      ///< the Multi: parts, arps, effects. Voices by reference.
+    WithVoices,     ///< also every part's voice edit buffer, so edits survive
+};
+
+/// Requests the Multi, and optionally each part's voice, collecting blocks
+/// until each footer arrives. `progress` receives (messagesSoFar).
 [[nodiscard]] std::optional<State> captureState(
     Device&, std::function<void(int)> progress = {},
-    std::chrono::milliseconds quietTime = std::chrono::milliseconds{700});
+    std::chrono::milliseconds quietTime = std::chrono::milliseconds{700},
+    CaptureScope scope = CaptureScope::WithVoices);
 
 /// Sends the captured blocks back. `interBlockDelay` honours the rack's Bulk
 /// Interval setting (00 00 1F); too fast and blocks are dropped silently.

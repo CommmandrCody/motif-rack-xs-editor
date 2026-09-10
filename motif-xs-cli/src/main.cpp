@@ -562,8 +562,11 @@ int main(int argc, char** argv) {
         DeviceInfo info;
         if (!connectAndIdentify(d, &info)) return 1;
         std::printf("capturing the Multi...\n");
-        auto st = captureState(d, [](int got) {
-            std::printf("\r  %d blocks", got);
+        int lastShown = 0;
+        auto st = captureState(d, [&lastShown](int got) {
+            if (got - lastShown < 20) return;      // do not spam the terminal
+            lastShown = got;
+            std::printf("\r  %d blocks ", got);
             std::fflush(stdout);
         });
         std::putchar('\n');
