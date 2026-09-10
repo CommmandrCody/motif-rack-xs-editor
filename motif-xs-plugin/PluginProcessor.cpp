@@ -81,6 +81,34 @@ MotifXsProcessor::MotifXsProcessor()
     startTimerHz(30);
 }
 
+bool MotifXsProcessor::midiOutEnabled() const { return relayOn_.load(); }
+
+void MotifXsProcessor::setMidiOutEnabled(bool on) {
+    relayOn_.store(on);
+    if (!on) {
+        worker_->post([](Device& d) { d.setChannelListener({}); });
+        return;
+    }
+    // Only one listener slot exists on the shared connection, so with several
+    // instances the most recently enabled one wins. One instance relaying is
+    // the sane arrangement anyway -- the rack sends a single merged stream.
+    worker_->post([this](Device& d) {
+        d.setChannelListener([this](const Bytes& m) {
+            if (!relayOn_.load() || m.empty() || m.size() > 3) return;
+            int start1, size1, start2, size2;
+            relayFifo_.prepareToWrite(1, start1, size1, start2, size2);
+            if (size1 + size2 < 1) {          // the host is not draining
+                relayDropped_.fetch_add(1);
+                return;
+            }
+            auto& slot = relayQueue_[std::size_t(size1 > 0 ? start1 : start2)];
+            slot.size = std::uint8_t(m.size());
+            for (std::size_t i = 0; i < m.size(); ++i) slot.bytes[i] = m[i];
+            relayFifo_.finishedWrite(1);
+        });
+    });
+}
+
 MotifXsProcessor::~MotifXsProcessor() { stopTimer(); }
 
 void MotifXsProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi) {
@@ -89,6 +117,25 @@ void MotifXsProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
     juce::ScopedNoDenormals noDenormals;
     buffer.clear();
     midi.clear();
+
+    // Relay whatever the rack's arpeggiator sent since the last block. These
+    // arrive asynchronously, so they are stamped at the start of the block --
+    // up to one buffer of jitter, which is fine for capture but is not
+    // sample-accurate, and worth knowing before quantising hard against it.
+    if (relayOn_.load()) {
+        int start1, size1, start2, size2;
+        relayFifo_.prepareToRead(kRelayCapacity, start1, size1, start2, size2);
+        const auto emit = [&](int from, int count) {
+            for (int i = 0; i < count; ++i) {
+                const auto& s = relayQueue_[std::size_t(from + i)];
+                if (s.size >= 1)
+                    midi.addEvent(juce::MidiMessage(s.bytes, int(s.size)), 0);
+            }
+        };
+        emit(start1, size1);
+        emit(start2, size2);
+        relayFifo_.finishedRead(size1 + size2);
+    }
 
     // Detect automation movement without allocating or sending. The worker
     // thread does the actual MIDI; a host sweeping a parameter at block rate

@@ -39,10 +39,16 @@ add_test(NAME core COMMAND motif-xs-tests)
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/JUCE/CMakeLists.txt")
     add_subdirectory(external/JUCE)
 
+    # The mark is the drawbar registration of "1972 AS1": eight elements, one
+    # per footage, at the levels the element editor shows as faders.
+    set(MOTIFXS_ICON "${CMAKE_CURRENT_SOURCE_DIR}/resources/icon.png")
+
     juce_add_gui_app(motif-xs-app
         PRODUCT_NAME "Motif Rack XS"
         COMPANY_NAME "motifxs"
         BUNDLE_ID "com.motifxs.app"
+        ICON_BIG "${MOTIFXS_ICON}"
+        ICON_SMALL "${MOTIFXS_ICON}"
         MICROPHONE_PERMISSION_ENABLED FALSE)
 
     target_sources(motif-xs-app PRIVATE
@@ -78,9 +84,11 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/JUCE/CMakeLists.txt")
         FORMATS VST3 AU
         IS_SYNTH FALSE
         NEEDS_MIDI_INPUT TRUE
-        NEEDS_MIDI_OUTPUT FALSE
+        NEEDS_MIDI_OUTPUT TRUE
         EDITOR_WANTS_KEYBOARD_FOCUS TRUE
         COPY_PLUGIN_AFTER_BUILD TRUE
+        ICON_BIG "${MOTIFXS_ICON}"
+        ICON_SMALL "${MOTIFXS_ICON}"
         MICROPHONE_PERMISSION_ENABLED FALSE)
 
     target_sources(motif-xs-plugin PRIVATE

@@ -34,7 +34,11 @@ public:
 
     const juce::String getName() const override { return "Motif Rack XS"; }
     bool acceptsMidi() const override { return true; }
-    bool producesMidi() const override { return false; }
+    /// The rack's arpeggiator output is relayed to the host as ordinary note
+    /// and controller events, so a DAW track can record the phrase. Note events
+    /// through the VST3 output bus are reliable; it is SysEx that is not, and
+    /// none of the device's SysEx goes this way.
+    bool producesMidi() const override { return true; }
     bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override { return 0.0; }
 
@@ -51,6 +55,10 @@ public:
 
     motifxs::DeviceWorker& worker() { return *worker_; }
     juce::AudioProcessorValueTreeState& apvts() { return apvts_; }
+
+    /// True while the rack's arpeggiator is being relayed to the host.
+    [[nodiscard]] bool midiOutEnabled() const;
+    void setMidiOutEnabled(bool);
 
     /// Captures the rack now, so the next host save carries it.
     void captureNow(std::function<void(bool, juce::String)> done = {});
@@ -76,6 +84,18 @@ private:
     /// enqueues genuine changes rather than a message per block.
     std::vector<std::atomic<float>> lastPushed_;
     std::atomic<bool> automationDirty_{false};
+
+    /// Channel messages arriving from the rack, handed from the CoreMIDI read
+    /// thread to the audio thread without a lock.
+    struct RelayedMessage {
+        std::uint8_t bytes[3]{};
+        std::uint8_t size{};
+    };
+    static constexpr int kRelayCapacity = 2048;
+    juce::AbstractFifo relayFifo_{kRelayCapacity};
+    std::array<RelayedMessage, kRelayCapacity> relayQueue_{};
+    std::atomic<bool> relayOn_{false};
+    std::atomic<int> relayDropped_{0};
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MotifXsProcessor)
 };

@@ -72,6 +72,8 @@ Auto-connects to MOTIF-RACK XS Port1 and reads the rack's live state.
   back. See `docs/state-sync.md`
 * **THRU** -- forward the rack's arpeggiator to another instrument (an
   INTEGRA-7, say); see `docs/midi-routing.md`
+* **ARP -> DAW** (plugin only) -- relay the arpeggiator into the host track as
+  MIDI, so the phrase can be recorded without an IAC bus
 * **PANIC** -- all notes off plus ARP switch/hold cleared on all 16 parts,
   and All Notes Off to the thru target too
 

@@ -26,6 +26,7 @@ private:
 
     juce::Label stateLabel_;
     juce::TextButton captureButton_{"CAPTURE FOR PROJECT"};
+    juce::TextButton midiOutButton_{"ARP -> DAW"};
     juce::Label hint_;
     theme::Look look_;
 

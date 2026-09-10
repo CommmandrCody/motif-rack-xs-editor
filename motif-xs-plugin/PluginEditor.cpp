@@ -52,6 +52,24 @@ MotifXsEditor::MotifXsEditor(MotifXsProcessor& p)
         ui_.setPart(int(raw->load()) - 1);
     }
 
+    // Relays the rack's arpeggiator into the track as note events, so the
+    // phrase can be recorded without an IAC bus in the middle.
+    midiOutButton_.setClickingTogglesState(true);
+    midiOutButton_.setToggleState(processor_.midiOutEnabled(), juce::dontSendNotification);
+    midiOutButton_.setColour(juce::TextButton::buttonOnColourId, theme::good);
+    midiOutButton_.setColour(juce::TextButton::textColourOnId, juce::Colours::black);
+    midiOutButton_.setColour(juce::TextButton::textColourOffId, theme::dim);
+    midiOutButton_.setTooltip("Send the rack's arpeggiator to this track as MIDI. "
+                              "Arm ARP and OUT on the part as well.");
+    midiOutButton_.onClick = [this] {
+        const bool on = midiOutButton_.getToggleState();
+        processor_.setMidiOutEnabled(on);
+        hint_.setText(on ? "arp is being sent to this track - arm ARP and OUT on the part too"
+                         : "capture before saving the project, or the rack's setup is not stored",
+                      juce::dontSendNotification);
+    };
+    addAndMakeVisible(midiOutButton_);
+
     setResizable(true, true);
     setResizeLimits(980, 620, 3000, 2000);
     setSize(1240, 800);
@@ -79,6 +97,8 @@ void MotifXsEditor::resized() {
     auto r = getLocalBounds();
     auto strip = r.removeFromBottom(30).reduced(10, 4);
     captureButton_.setBounds(strip.removeFromLeft(190));
+    strip.removeFromLeft(8);
+    midiOutButton_.setBounds(strip.removeFromLeft(110));
     strip.removeFromLeft(10);
     stateLabel_.setBounds(strip.removeFromLeft(320));
     hint_.setBounds(strip);
