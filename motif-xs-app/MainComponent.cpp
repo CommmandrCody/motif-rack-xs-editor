@@ -88,8 +88,17 @@ MainComponent::MainComponent(DeviceWorker& worker) : worker_(worker) {
     auditionButton_.setToggleState(true, juce::dontSendNotification);
     auditionButton_.setColour(juce::TextButton::buttonOnColourId, theme::accent);
     auditionButton_.setColour(juce::TextButton::textColourOnId, juce::Colours::black);
-    auditionButton_.setTooltip("Play a note when a voice is selected");
-    auditionButton_.onClick = [this] { saveSettings(); };
+    auditionButton_.setColour(juce::TextButton::textColourOffId, theme::dim);
+    auditionButton_.setTooltip("Play a note when a voice or drum key is selected");
+    auditionButton_.onClick = [this] {
+        const bool on = auditionButton_.getToggleState();
+        auditionButton_.setButtonText(on ? "AUDITION" : "AUDITION OFF");
+        if (!on) stopAudition();
+        setStatus(on ? "audition on - selecting a voice plays it"
+                     : "audition off - selecting a voice is silent",
+                  on ? theme::good : theme::dim);
+        saveSettings();
+    };
     addAndMakeVisible(auditionButton_);
 
     voices_.onPick = [this](const Voice& v) {
@@ -184,6 +193,10 @@ MainComponent::MainComponent(DeviceWorker& worker) : worker_(worker) {
     };
     tabs_.setColour(juce::TabbedComponent::outlineColourId, juce::Colours::transparentBlack);
     addAndMakeVisible(tabs_);
+    // The audition button shares the tab-bar row, and tabs_ is added after it,
+    // so the TabbedComponent sat on top and swallowed its clicks -- it painted
+    // normally (the bar's right end is transparent) while doing nothing.
+    auditionButton_.toFront(false);
 
     arpSlot_.addItem("SF1", 1); arpSlot_.addItem("SF2", 2); arpSlot_.addItem("SF3", 3);
     arpSlot_.addItem("SF4", 4); arpSlot_.addItem("SF5", 5);
@@ -530,8 +543,9 @@ void MainComponent::loadSettings() {
         for (int i = 0; i < portBox_.getNumItems(); ++i)
             if (portBox_.getItemText(i) == port)
                 portBox_.setSelectedItemIndex(i, juce::dontSendNotification);
-    auditionButton_.setToggleState(settings_->getBoolValue("audition", true),
-                                   juce::dontSendNotification);
+    const bool audition = settings_->getBoolValue("audition", true);   // on by default
+    auditionButton_.setToggleState(audition, juce::dontSendNotification);
+    auditionButton_.setButtonText(audition ? "AUDITION" : "AUDITION OFF");
     tabs_.setCurrentTabIndex(settings_->getIntValue("tab", 0), false);
     const auto thru = settings_->getValue("thru", {});
     if (thru.isNotEmpty())
@@ -716,4 +730,5 @@ void MainComponent::resized() {
     auditionButton_.setBounds(tabRow.removeFromRight(96).reduced(10, 2));
     r = r.withTop(tabRow.getY());
     tabs_.setBounds(r.reduced(10, 4));
+    auditionButton_.toFront(false);   // stay clickable above the tab bar
 }
