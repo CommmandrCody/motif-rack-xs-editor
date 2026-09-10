@@ -170,7 +170,13 @@ MainComponent::MainComponent(DeviceWorker& worker) : worker_(worker) {
     tabs_.setTabBarDepth(28);
     tabs_.addTab("VOICE", theme::bg, &voices_, false);
     tabs_.addTab("ARPEGGIO", theme::bg, &arps_, false);
+    tabs_.addTab("ELEMENTS", theme::bg, &elements_, false);
     tabs_.addTab("DRUM", theme::bg, &drums_, false);
+
+    elements_.onElementSelected = [this](int ee) { pullElement(ee); };
+    elements_.onEdit = [this](int ee, const Parameter& p, int raw) {
+        worker_.setParameter(p, ee, raw);
+    };
 
     drums_.onKeySelected = [this](int ee) {
         pullDrumKey(ee);
@@ -474,6 +480,7 @@ void MainComponent::pullPartState() {
         });
 
     refreshDrumPage();
+    refreshElementPage();
 
     const int slot = juce::jmax(1, arpSlot_.getSelectedId());
     const std::uint8_t low = std::uint8_t(0x38 + (slot - 1) * 2);
@@ -613,6 +620,82 @@ void MainComponent::refreshDrumPage() {
                 [this, ee, on] { drums_.keyMap().setAssigned(ee, on); });
         }
         juce::MessageManager::callAsync([this] { pullDrumKey(drums_.keyMap().selected()); });
+    });
+}
+
+/// The Normal Voice edit buffer, like the drum one, belongs to whichever part
+/// the rack itself has selected -- so the page names the voice it is actually
+/// editing instead of implying it follows the part strip.
+void MainComponent::refreshElementPage() {
+    if (!worker_.isOpen()) return;
+    worker_.post([this](Device& d) {
+        std::string name;
+        for (int i = 0; i < 20; ++i) {
+            auto b = d.readAddress({0x40, 0x00, std::uint8_t(i)});
+            if (!b || b->empty()) { name.clear(); break; }
+            name.push_back(char((*b)[0]));
+        }
+        while (!name.empty() && name.back() == ' ') name.pop_back();
+
+        if (name.empty()) {
+            juce::MessageManager::callAsync([this] {
+                elements_.setAvailable(false, "select a Normal Voice on the rack's current part");
+            });
+            return;
+        }
+        const juce::String voiceName(name);
+        juce::MessageManager::callAsync([this, voiceName] {
+            juce::String which;
+            for (int p = 0; p < 16; ++p)
+                if (partVoiceNames_[size_t(p)] == voiceName) {
+                    which = "  (part " + juce::String(p + 1) + ")";
+                    break;
+                }
+            elements_.setAvailable(true, voiceName + which);
+        });
+
+        for (int ee = 0; ee < ElementEditor::kElements; ++ee) {
+            if (const auto* p = elements_.assignParameter())
+                if (auto v = d.readParameter(*p, ee, std::chrono::milliseconds{60})) {
+                    const bool on = *v != 0;
+                    juce::MessageManager::callAsync(
+                        [this, ee, on] { elements_.setAssigned(ee, on); });
+                }
+            if (auto w = d.readAddress({0x41, std::uint8_t(ee), 0x03})) {
+                if (w->size() >= 2) {
+                    const int num = ((*w)[0] << 7) | (*w)[1];
+                    juce::MessageManager::callAsync(
+                        [this, ee, num] { elements_.setWaveform(ee, num); });
+                }
+            }
+            for (const auto* p : {elements_.levelParameter(), elements_.panParameter()}) {
+                if (!p) continue;
+                if (auto v = d.readParameter(*p, ee, std::chrono::milliseconds{60})) {
+                    const int raw = *v;
+                    juce::MessageManager::callAsync(
+                        [this, ee, p, raw] { elements_.setValue(ee, *p, raw); });
+                }
+            }
+        }
+        juce::MessageManager::callAsync([this] { pullElement(elements_.selected()); });
+    });
+}
+
+void MainComponent::pullElement(int ee) {
+    if (!worker_.isOpen()) return;
+    worker_.post([this, ee](Device& d) {
+        std::vector<const Parameter*> wanted;
+        for (size_t i = 0; i < ElementEditor::details().size(); ++i)
+            if (const auto* p = elements_.detailParameter(i)) wanted.push_back(p);
+        if (const auto* p = elements_.filterTypeParameter()) wanted.push_back(p);
+        if (const auto* p = elements_.xaParameter()) wanted.push_back(p);
+
+        for (const auto* p : wanted) {
+            const auto v = d.readParameter(*p, ee, std::chrono::milliseconds{60});
+            if (!v) continue;
+            const int raw = *v;
+            juce::MessageManager::callAsync([this, ee, p, raw] { elements_.setValue(ee, *p, raw); });
+        }
     });
 }
 

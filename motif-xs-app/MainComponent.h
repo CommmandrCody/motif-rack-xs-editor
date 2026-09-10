@@ -13,6 +13,7 @@
 
 #include "Browsers.h"
 #include "DrumEditor.h"
+#include "ElementEditor.h"
 #include "Theme.h"
 
 /// One labelled knob bound to a Multi Part parameter.
@@ -109,6 +110,8 @@ private:
     void loadState();
     void refreshDrumPage();
     void pullDrumKey(int ee);
+    void refreshElementPage();
+    void pullElement(int ee);
     void setStatus(const juce::String&, juce::Colour);
     void timerCallback() override;
 
@@ -127,6 +130,7 @@ private:
     VoiceBrowser voices_;
     ArpBrowser arps_;
     DrumEditor drums_;
+    ElementEditor elements_;
 
     // Voice and Arpeggio each get the full width instead of sharing it. The
     // common case is picking a voice; the arp browser was taking half the
