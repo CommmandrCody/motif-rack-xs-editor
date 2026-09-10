@@ -29,6 +29,9 @@ How the editor keeps its picture of the rack honest. Everything marked
 4  assert 00 00 14 == 01 and 00 00 15 == 01
      if not: warn the user, offer to enable. Without these, patch
      selection is a no-op with no error.
+4b assert 00 00 0C == 00 (Layer 1-4 Parts off) for multi-timbral use
+     if on, Parts 1-4 all receive on the Basic Receive Channel and
+     their per-part Receive Channel is overridden.
 5  read 0A 00 01 -> current mode
 6  probe one address per candidate block to establish which edit
    buffer is live (40 00 00 vs 46 00 00)

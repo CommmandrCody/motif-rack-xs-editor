@@ -83,6 +83,19 @@ bool connectAndIdentify(Device& d, DeviceInfo* info = nullptr) {
     return true;
 }
 
+/// Warns if Layer 1-4 Parts is on. It forces Parts 1-4 onto the Basic Receive
+/// Channel, overriding their own, which quietly breaks multi-timbral DAW use.
+void checkLayerSwitch(Device& d) {
+    const auto* layer = findParameter(Scope::System, 0x00, 0x00, 0x0C);
+    if (!layer) return;
+    const auto v = d.readParameter(*layer);
+    if (v && *v != 0)
+        std::fprintf(stderr,
+                     "warning: 'Layer 1-4 Parts' is on. Parts 1-4 will all receive on\n"
+                     "         the Basic Receive Channel, ignoring their own setting.\n"
+                     "         Fix: motifxs set system_layer_1_4_parts_switch 0\n");
+}
+
 /// Warns if the rack is configured to ignore patch selection. This shipped
 /// switched off on the reference unit and fails completely silently.
 void checkPatchReceiveSwitches(Device& d) {
@@ -187,6 +200,7 @@ int cmdStatus() {
     }
 
     checkPatchReceiveSwitches(d);
+    checkLayerSwitch(d);
     return 0;
 }
 

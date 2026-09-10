@@ -85,6 +85,18 @@ headline feature for the Ableton workflow.
 * Bank/Program per part means the whole rack configuration is describable as
   data — which is exactly what the plugin needs to serialise.
 
+## System settings that override part settings
+
+Two System parameters silently overrule the per-part configuration, so a Multi
+can look correct in the data and behave wrongly:
+
+| Address | Parameter | Effect when set wrongly |
+|---|---|---|
+| `00 00 0C` | Layer 1-4 Parts | **on** forces Parts 1-4 onto the Basic Receive Channel, overriding `37 pp 04`. Four DAW tracks collapse onto one. Keep **off** for multi-timbral use. |
+| `00 00 14` / `15` | Bank Select / Program Change receive | **off** makes every part voice change a silent no-op. Keep **on**. |
+
+Both are checked at connect time; see `state-sync.md`.
+
 ## Verified behaviour
 
 * All 16 part blocks (`37 00`..`37 0F`) respond, and the `pp` index resolves
