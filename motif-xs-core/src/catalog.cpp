@@ -40,6 +40,12 @@ const Voice* findVoice(std::uint8_t msb, std::uint8_t lsb, std::uint8_t program)
     return nullptr;
 }
 
+const Waveform* findWaveform(int number) {
+    for (const auto& w : allWaveforms())
+        if (w.number == number) return &w;
+    return nullptr;
+}
+
 const Arpeggio* findArpeggio(int number) {
     for (const auto& a : allArpeggios())
         if (a.number == number) return &a;

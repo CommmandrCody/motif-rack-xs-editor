@@ -156,6 +156,27 @@ MainComponent::MainComponent() {
     tabs_.setTabBarDepth(28);
     tabs_.addTab("VOICE", theme::bg, &voices_, false);
     tabs_.addTab("ARPEGGIO", theme::bg, &arps_, false);
+    tabs_.addTab("DRUM", theme::bg, &drums_, false);
+
+    drums_.onKeySelected = [this](int ee) {
+        pullDrumKey(ee);
+        // audition the key itself, not middle C -- a kit is 73 instruments
+        const std::uint8_t ch = std::uint8_t(part_ & 0x0F);
+        const std::uint8_t note = std::uint8_t(DrumKeyMap::kFirstNote + ee);
+        if (auditionButton_.getToggleState())
+            worker_.post([ch, note](Device& d) {
+                d.send(Bytes{std::uint8_t(0x90 | ch), note, 100});
+            });
+        juce::Timer::callAfterDelay(700, [this, ch, note] {
+            worker_.post([ch, note](Device& d) {
+                d.send(Bytes{std::uint8_t(0x80 | ch), note, 0});
+            });
+        });
+    };
+
+    drums_.onEdit = [this](int ee, const Parameter& p, int raw) {
+        worker_.setParameter(p, ee, raw);
+    };
     tabs_.setColour(juce::TabbedComponent::outlineColourId, juce::Colours::transparentBlack);
     addAndMakeVisible(tabs_);
 
@@ -251,11 +272,27 @@ void MainComponent::setStatus(const juce::String& text, juce::Colour colour) {
 void MainComponent::connect() {
     const auto name = portBox_.getText().toStdString();
     setStatus("connecting...", theme::dim);
-    worker_.open(name, [this](bool ok, std::string err, DeviceInfo info) {
+    worker_.open(name, [this, name](bool ok, std::string err, DeviceInfo info) {
         if (!ok) {
             setStatus(juce::String(err), theme::bad);
+            // A remembered or mis-picked port cannot answer. Try once more
+            // letting the device layer find the rack's Port1 itself.
+            if (!name.empty() && !retriedAuto_) {
+                retriedAuto_ = true;
+                juce::MessageManager::callAsync([this] {
+                    for (int i = 0; i < portBox_.getNumItems(); ++i)
+                        if (portBox_.getItemText(i).contains("MOTIF") &&
+                            portBox_.getItemText(i).contains("Port1")) {
+                            portBox_.setSelectedItemIndex(i, juce::dontSendNotification);
+                            break;
+                        }
+                    setStatus("retrying on the rack's Port1...", theme::warn);
+                    connect();
+                });
+            }
             return;
         }
+        retriedAuto_ = false;
         setStatus("connected", theme::good);
         juce::MessageManager::callAsync([this, info] {
             deviceLabel_.setText("device " + juce::String(info.deviceNumber) +
@@ -355,6 +392,8 @@ void MainComponent::pullPartState() {
             });
         });
 
+    refreshDrumPage();
+
     const int slot = juce::jmax(1, arpSlot_.getSelectedId());
     const std::uint8_t low = std::uint8_t(0x38 + (slot - 1) * 2);
     if (const auto* assign = findParameter(Scope::MultiPart, 0x38, 0x00, low))
@@ -417,7 +456,9 @@ void MainComponent::stopAudition() {
 void MainComponent::loadSettings() {
     if (!settings_) return;
     const auto port = settings_->getValue("port", {});
-    if (port.isNotEmpty())
+    // Ignore a remembered port that is not a rack port; refreshPorts() has
+    // already picked the right default and should keep it.
+    if (port.isNotEmpty() && port.contains("MOTIF"))
         for (int i = 0; i < portBox_.getNumItems(); ++i)
             if (portBox_.getItemText(i) == port)
                 portBox_.setSelectedItemIndex(i, juce::dontSendNotification);
@@ -434,13 +475,87 @@ void MainComponent::loadSettings() {
 
 void MainComponent::saveSettings() {
     if (!settings_) return;
-    settings_->setValue("port", portBox_.getText());
+    // Only remember a port that actually answered as a MOTIF-RACK XS. Saving
+    // whatever happens to be selected means one stray pick is remembered
+    // forever, and the app then auto-connects to something that cannot reply.
+    if (worker_.isOpen()) settings_->setValue("port", portBox_.getText());
     settings_->setValue("part", part_);
     settings_->setValue("tab", tabs_.getCurrentTabIndex());
     settings_->setValue("audition", auditionButton_.getToggleState());
     settings_->setValue("thru", thruBox_.getSelectedId() <= 1 ? juce::String()
                                                              : thruBox_.getText());
     settings_->saveIfNeeded();
+}
+
+/// The Normal Voice and Drum edit buffers answer only for the part the rack
+/// itself has selected -- neither Part Set Control (0D 00 00) nor a Program
+/// Change on another channel moves it, so the page reports which part it is
+/// actually looking at rather than pretending to follow the part strip.
+void MainComponent::refreshDrumPage() {
+    if (!worker_.isOpen()) return;
+    worker_.post([this](Device& d) {
+        std::string kit;
+        for (int i = 0; i < 20; ++i) {
+            auto b = d.readAddress({0x46, 0x00, std::uint8_t(i)});
+            if (!b || b->empty()) { kit.clear(); break; }
+            kit.push_back(char((*b)[0]));
+        }
+        while (!kit.empty() && kit.back() == ' ') kit.pop_back();
+
+        if (kit.empty()) {
+            juce::MessageManager::callAsync([this] {
+                drums_.setAvailable(false, "select a drum kit on the rack's current part");
+            });
+            return;
+        }
+
+        // Work out which part this buffer belongs to by matching the kit name
+        // against the parts we have already read.
+        const juce::String kitName(kit);
+        juce::MessageManager::callAsync([this, kitName] {
+            juce::String which;
+            for (int p = 0; p < 16; ++p)
+                if (partVoiceNames_[size_t(p)] == kitName) {
+                    which = "  (part " + juce::String(p + 1) + ")";
+                    break;
+                }
+            drums_.setAvailable(true, kitName + which);
+        });
+
+        // assign flags for all 73 keys
+        for (int ee = 0; ee < DrumKeyMap::kKeys; ++ee) {
+            auto b = d.readAddress({0x47, std::uint8_t(ee), 0x00},
+                                   std::chrono::milliseconds{50});
+            const bool on = b && !b->empty() && (*b)[0] != 0;
+            juce::MessageManager::callAsync(
+                [this, ee, on] { drums_.keyMap().setAssigned(ee, on); });
+        }
+        juce::MessageManager::callAsync([this] { pullDrumKey(drums_.keyMap().selected()); });
+    });
+}
+
+void MainComponent::pullDrumKey(int ee) {
+    if (!worker_.isOpen()) return;
+    worker_.post([this, ee](Device& d) {
+        if (auto w = d.readAddress({0x47, std::uint8_t(ee), 0x06})) {
+            if (w->size() >= 2) {
+                const int num = ((*w)[0] << 7) | (*w)[1];
+                juce::MessageManager::callAsync([this, num] { drums_.setWaveform(num); });
+            }
+        }
+        std::vector<const Parameter*> wanted;
+        for (size_t i = 0; i < DrumEditor::controls().size(); ++i)
+            if (const auto* p = drums_.parameterAt(i)) wanted.push_back(p);
+        if (const auto* p = drums_.altGroupParameter()) wanted.push_back(p);
+        if (const auto* p = drums_.rcvOffParameter()) wanted.push_back(p);
+
+        for (const auto* p : wanted) {
+            const auto v = d.readParameter(*p, ee, std::chrono::milliseconds{60});
+            if (!v) continue;
+            const int raw = *v;
+            juce::MessageManager::callAsync([this, p, raw] { drums_.setValue(*p, raw); });
+        }
+    });
 }
 
 void MainComponent::pushKnob(ParamKnob& k) {

@@ -38,6 +38,17 @@ struct Arpeggio {
 };
 
 [[nodiscard]] std::span<const Arpeggio> allArpeggios();
+
+/// One of the 2670 preset waveforms. Drum keys and Normal Voice elements both
+/// reference these by number.
+struct Waveform {
+    std::uint16_t number{};     ///< 1..2670
+    std::string_view category;  ///< "Dr", "Pc", "Gt", ...
+    std::string_view name;
+};
+
+[[nodiscard]] std::span<const Waveform> allWaveforms();
+[[nodiscard]] const Waveform* findWaveform(int number);
 [[nodiscard]] const Arpeggio* findArpeggio(int number);
 
 struct ArpFilter {

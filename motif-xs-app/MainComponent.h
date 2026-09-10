@@ -11,6 +11,7 @@
 #include "motifxs/worker.hpp"
 
 #include "Browsers.h"
+#include "DrumEditor.h"
 #include "Theme.h"
 
 /// One labelled knob bound to a Multi Part parameter.
@@ -90,6 +91,8 @@ private:
     void pushKnob(ParamKnob&);
     void updateArpWarning();
     void refreshThruDestinations();
+    void refreshDrumPage();
+    void pullDrumKey(int ee);
     void setStatus(const juce::String&, juce::Colour);
     void timerCallback() override;
 
@@ -107,6 +110,7 @@ private:
 
     VoiceBrowser voices_;
     ArpBrowser arps_;
+    DrumEditor drums_;
 
     // Voice and Arpeggio each get the full width instead of sharing it. The
     // common case is picking a voice; the arp browser was taking half the
@@ -134,6 +138,7 @@ private:
     void stopAudition();
     bool auditionSounding_{false};
 
+    bool retriedAuto_{false};
     std::unique_ptr<juce::PropertiesFile> settings_;
     void loadSettings();
     void saveSettings();

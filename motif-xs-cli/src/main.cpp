@@ -38,6 +38,7 @@ int usage() {
         "  motifxs arp <slot 1-5> <number>       assign an arpeggio type\n"
         "  motifxs dump-state                    read the live edit buffer\n"
         "  motifxs panic                         all notes off, arpeggiators off\n"
+        "  motifxs send <hex>...                 send raw MIDI bytes (e.g. B0 00 3F C0 00)\n"
         "  motifxs thru <dest> [secs] [ch]       forward the rack's notes to another device\n"
         "\n"
         "  --port <name>   use a specific MIDI port (default: MOTIF ... Port1)\n");
@@ -548,6 +549,34 @@ int main(int argc, char** argv) {
     if (cmd == "params") return cmdParams(n, rest);
     if (cmd == "arp-list") return cmdArpList(n, rest);
     if (cmd == "arp") return cmdArp(n, rest);
+    if (cmd == "send") {
+        if (n < 1) return usage();
+        Bytes raw;
+        for (int i = 0; i < n; ++i) {
+            std::string tok = rest[i];
+            // accept "B0 00 3F" or "B0003F"
+            if (tok.size() % 2 != 0) {
+                std::fprintf(stderr, "error: '%s' is not whole hex bytes\n", tok.c_str());
+                return 1;
+            }
+            for (std::size_t k = 0; k + 1 < tok.size() + 1; k += 2) {
+                if (k + 2 > tok.size()) break;
+                const auto b = toHex(tok.substr(k, 2));
+                if (!b) {
+                    std::fprintf(stderr, "error: '%s' is not hex\n", tok.c_str());
+                    return 1;
+                }
+                raw.push_back(std::uint8_t(*b));
+            }
+        }
+        Device d;
+        if (!connect(d)) return 1;
+        d.send(raw);
+        std::printf("sent %zu byte(s):", raw.size());
+        for (auto b : raw) std::printf(" %02X", b);
+        std::putchar('\n');
+        return 0;
+    }
     if (cmd == "thru") {
         if (n < 1) return usage();
         Device d;
