@@ -45,7 +45,14 @@ struct Device::Impl {
     SysExReassembler reassembler;
     std::mutex mutex;
     std::condition_variable cv;
-    std::vector<Bytes> inbox;
+    // Inbound messages carry an arrival sequence number. The rack transmits
+    // Parameter Changes of its own accord whenever the front panel touches a
+    // parameter, and those are byte-identical to a reply -- there is no request
+    // id to correlate on. Requiring a reply to have arrived strictly after the
+    // request was sent is what stops a panel transmission from satisfying a
+    // read. Draining alone leaves a window between drain and send.
+    std::vector<std::pair<std::uint64_t, Bytes>> inbox;
+    std::uint64_t arrivals{0};
     std::function<void(const Bytes&)> listener;
 
     ~Impl() {
@@ -63,7 +70,7 @@ struct Device::Impl {
                 std::lock_guard lock(mutex);
                 for (auto& m : msgs) {
                     if (listener) listener(m);
-                    inbox.push_back(std::move(m));
+                    inbox.emplace_back(++arrivals, std::move(m));
                 }
                 cv.notify_all();
             }
@@ -71,35 +78,37 @@ struct Device::Impl {
         }
     }
 
-    /// Waits for a message satisfying `pred`, consuming it.
+    /// Waits for a message satisfying `pred` that arrived after `after`,
+    /// consuming it. Messages older than `after` cannot be a reply to a request
+    /// sent at `after`, so they are ignored (see the note on `inbox`).
     std::optional<Bytes> await(const std::function<bool(const Bytes&)>& pred,
+                               std::uint64_t after,
                                std::chrono::milliseconds timeout) {
         std::unique_lock lock(mutex);
         const auto deadline = std::chrono::steady_clock::now() + timeout;
-        for (;;) {
+        auto scan = [&]() -> std::optional<Bytes> {
             for (auto it = inbox.begin(); it != inbox.end(); ++it) {
-                if (pred(*it)) {
-                    Bytes found = std::move(*it);
+                if (it->first > after && pred(it->second)) {
+                    Bytes found = std::move(it->second);
                     inbox.erase(it);
                     return found;
                 }
             }
-            if (cv.wait_until(lock, deadline) == std::cv_status::timeout) {
-                for (auto it = inbox.begin(); it != inbox.end(); ++it) {
-                    if (pred(*it)) {
-                        Bytes found = std::move(*it);
-                        inbox.erase(it);
-                        return found;
-                    }
-                }
-                return std::nullopt;
-            }
+            return std::nullopt;
+        };
+        for (;;) {
+            if (auto hit = scan()) return hit;
+            if (cv.wait_until(lock, deadline) == std::cv_status::timeout)
+                return scan();
         }
     }
 
-    void drain() {
+    /// Drops buffered messages and returns the arrival counter, so a caller can
+    /// require replies to be strictly newer than this moment.
+    std::uint64_t mark() {
         std::lock_guard lock(mutex);
         inbox.clear();
+        return arrivals;
     }
 };
 
@@ -189,10 +198,10 @@ std::optional<DeviceInfo> Device::identify(std::chrono::milliseconds perDevice) 
     if (!isOpen()) return std::nullopt;
     // The documented omni form (7F) does not reply on real hardware, so sweep.
     for (std::uint8_t n = 0; n < 16; ++n) {
-        impl_->drain();
+        const auto mark = impl_->mark();
         send(identityRequest(n));
         auto reply = impl_->await(
-            [](const Bytes& m) { return parseIdentityReply(m).has_value(); }, perDevice);
+            [](const Bytes& m) { return parseIdentityReply(m).has_value(); }, mark, perDevice);
         if (!reply) continue;
         const auto id = parseIdentityReply(*reply);
         if (!id || !id->isMotifRackXs()) continue;
@@ -204,14 +213,14 @@ std::optional<DeviceInfo> Device::identify(std::chrono::milliseconds perDevice) 
 
 std::optional<Bytes> Device::readAddress(Address a, std::chrono::milliseconds timeout) {
     if (!isOpen()) return std::nullopt;
-    impl_->drain();
+    const auto mark = impl_->mark();
     send(parameterRequest(impl_->deviceNumber, a));
     auto reply = impl_->await(
         [a](const Bytes& m) {
             const auto pc = parseParameterChange(m);
             return pc && pc->address == a;
         },
-        timeout);
+        mark, timeout);
     if (!reply) return std::nullopt;  // reserved, mid-parameter, or wrong mode
     return parseParameterChange(*reply)->data;
 }

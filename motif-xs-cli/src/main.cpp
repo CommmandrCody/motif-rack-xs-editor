@@ -83,12 +83,28 @@ bool connectAndIdentify(Device& d, DeviceInfo* info = nullptr) {
     return true;
 }
 
+/// Reads a parameter twice and returns the value only if both agree.
+///
+/// The rack transmits Parameter Changes of its own accord when the front panel
+/// touches a parameter, and they are byte-identical to a reply. The device
+/// layer already refuses replies older than the request, but a panel
+/// transmission landing *during* the wait can still match. These warnings tell
+/// the user to go and change a hardware setting, so a spurious one is worse
+/// than a slow one.
+std::optional<std::int32_t> readConfirmed(Device& d, const Parameter& p) {
+    const auto a = d.readParameter(p);
+    if (!a) return std::nullopt;
+    const auto b = d.readParameter(p);
+    if (!b || *a != *b) return std::nullopt;
+    return a;
+}
+
 /// Warns if Layer 1-4 Parts is on. It forces Parts 1-4 onto the Basic Receive
 /// Channel, overriding their own, which quietly breaks multi-timbral DAW use.
 void checkLayerSwitch(Device& d) {
     const auto* layer = findParameter(Scope::System, 0x00, 0x00, 0x0C);
     if (!layer) return;
-    const auto v = d.readParameter(*layer);
+    const auto v = readConfirmed(d, *layer);
     if (v && *v != 0)
         std::fprintf(stderr,
                      "warning: 'Layer 1-4 Parts' is on. Parts 1-4 will all receive on\n"
@@ -102,8 +118,8 @@ void checkPatchReceiveSwitches(Device& d) {
     const auto* bank = findParameter(Scope::System, 0x00, 0x00, 0x14);
     const auto* prog = findParameter(Scope::System, 0x00, 0x00, 0x15);
     if (!bank || !prog) return;
-    const auto b = d.readParameter(*bank);
-    const auto p = d.readParameter(*prog);
+    const auto b = readConfirmed(d, *bank);
+    const auto p = readConfirmed(d, *prog);
     if ((b && *b == 0) || (p && *p == 0)) {
         std::fprintf(stderr,
                      "warning: this rack is set to ignore %s%s%s.\n"
