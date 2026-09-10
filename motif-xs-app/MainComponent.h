@@ -4,6 +4,8 @@
 #include <array>
 #include <memory>
 
+#include <juce_data_structures/juce_data_structures.h>
+
 #include "motifxs/catalog.hpp"
 #include "motifxs/parameters.hpp"
 #include "motifxs/worker.hpp"
@@ -123,6 +125,18 @@ private:
     juce::TextButton arpMidiOut_{"OUT"};
     juce::ComboBox thruBox_;
     juce::Label thruLabel_;
+
+    // Clicking a voice should let you hear it; browsing 1217 voices silently
+    // is not browsing, it is reading a list.
+    juce::TextButton auditionButton_{"AUDITION"};
+    int auditionNote_{60};
+    void audition();
+    void stopAudition();
+    bool auditionSounding_{false};
+
+    std::unique_ptr<juce::PropertiesFile> settings_;
+    void loadSettings();
+    void saveSettings();
 
     std::array<std::unique_ptr<ParamKnob>, 9> knobs_;
 

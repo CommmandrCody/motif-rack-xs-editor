@@ -23,6 +23,19 @@ tests/             core tests, no hardware needed
 
 ## Build
 
+> **After a macOS major upgrade**, Apple's `xcode-select` shim can end up
+> pointing at an Xcode that is too old for the new OS, and then `git`, `clang`
+> and `xcrun` all fail with `Symbol not found: _XPCTypeBool`. The compiler
+> itself is fine; only the wrapper is broken. Either point the shim at the
+> standalone tools once:
+>
+> ```sh
+> sudo xcode-select -s /Library/Developer/CommandLineTools
+> ```
+>
+> or set `DEVELOPER_DIR=/Library/Developer/CommandLineTools` per shell, which
+> needs no sudo. Updating Xcode from the App Store also fixes it.
+
 The CLI, core and tests need nothing but CMake 3.21+ and a C++20 compiler:
 
 ```sh

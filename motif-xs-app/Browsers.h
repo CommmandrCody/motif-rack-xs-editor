@@ -10,6 +10,22 @@
 #include "motifxs/catalog.hpp"
 #include "Theme.h"
 
+/// A search field that hands the arrow and return keys to the list below it,
+/// so you can type a few letters and then walk the results without reaching
+/// for the mouse.
+class SearchBox : public juce::TextEditor {
+public:
+    std::function<bool(const juce::KeyPress&)> onNavigationKey;
+
+    bool keyPressed(const juce::KeyPress& key) override {
+        if (onNavigationKey &&
+            (key.isKeyCode(juce::KeyPress::downKey) || key.isKeyCode(juce::KeyPress::upKey) ||
+             key.isKeyCode(juce::KeyPress::returnKey)))
+            if (onNavigationKey(key)) return true;
+        return juce::TextEditor::keyPressed(key);
+    }
+};
+
 /// Searchable list of the 1217 factory voices, grouped into collapsible
 /// categories. 1217 flat rows is a lot to scroll; collapsed categories turn it
 /// into about twenty. Typing expands whatever matches.
@@ -46,6 +62,15 @@ public:
         list_.setModel(this);
         list_.setRowHeight(22);
         addAndMakeVisible(list_);
+
+        search_.onNavigationKey = [this](const juce::KeyPress& k) {
+            const int first = firstVoiceRow();
+            if (first < 0) return false;
+            list_.grabKeyboardFocus();
+            list_.selectRow(first, false, true);
+            if (k.isKeyCode(juce::KeyPress::returnKey)) pickRow(first);
+            return true;
+        };
         rebuild();
     }
 
@@ -71,10 +96,12 @@ public:
             const auto& row = rows_[size_t(i)];
             if (row.voice && row.voice->msb == msb && row.voice->lsb == lsb &&
                 row.voice->program == program) {
+                const juce::ScopedValueSetter<bool> guard(suppress_, true);
                 list_.selectRow(i, false, true);
                 return;
             }
         }
+        const juce::ScopedValueSetter<bool> guard(suppress_, true);
         list_.deselectAllRows();
     }
 
@@ -117,7 +144,10 @@ private:
             if (expanded)
                 for (const auto* v : voices) rows_.push_back({v, cat, 0});
         }
-        list_.updateContent();
+        {
+            const juce::ScopedValueSetter<bool> guard(suppress_, true);
+            list_.updateContent();
+        }
         list_.repaint();
     }
 
@@ -125,6 +155,26 @@ private:
         int n = 0;
         for (const auto& kv : g) n += int(kv.second.size());
         return n;
+    }
+
+    int firstVoiceRow() const {
+        for (int i = 0; i < int(rows_.size()); ++i)
+            if (rows_[size_t(i)].voice) return i;
+        return -1;
+    }
+
+    void pickRow(int row) {
+        if (row < 0 || row >= int(rows_.size())) return;
+        if (const auto* v = rows_[size_t(row)].voice)
+            if (onPick) onPick(*v);
+    }
+
+    /// Arrow-key movement should load the voice, the same as a click -- but
+    /// programmatic selection (syncing the list to the rack) must not, or the
+    /// app would re-send the voice it just read back.
+    void selectedRowsChanged(int lastRow) override {
+        if (suppress_) return;
+        pickRow(lastRow);
     }
 
     int getNumRows() override { return int(rows_.size()); }
@@ -189,12 +239,13 @@ private:
 
     void textEditorTextChanged(juce::TextEditor&) override { rebuild(); }
 
-    juce::TextEditor search_;
+    SearchBox search_;
     juce::ComboBox bank_;
     juce::TextButton expandAll_;
     juce::ListBox list_;
     std::vector<Row> rows_;
     std::map<std::string, bool> open_;
+    bool suppress_{false};
 };
 
 /// Searchable, filterable list of the 6633 arpeggio types.
@@ -243,6 +294,14 @@ public:
         list_.setModel(this);
         list_.setRowHeight(22);
         addAndMakeVisible(list_);
+
+        search_.onNavigationKey = [this](const juce::KeyPress& k) {
+            if (rows_.empty()) return false;
+            list_.grabKeyboardFocus();
+            list_.selectRow(0, false, true);
+            if (k.isKeyCode(juce::KeyPress::returnKey) && onPick) onPick(*rows_[0]);
+            return true;
+        };
         refresh();
     }
 
@@ -327,7 +386,7 @@ private:
 
     void textEditorTextChanged(juce::TextEditor&) override { refresh(); }
 
-    juce::TextEditor search_;
+    SearchBox search_;
     juce::ComboBox cat_, sig_;
     juce::Slider tempo_;
     juce::Label tempoLabel_;

@@ -36,6 +36,13 @@ juce::String ParamKnob::format(int raw) const {
 MainComponent::MainComponent() {
     setLookAndFeel(&look_);
 
+    juce::PropertiesFile::Options opts;
+    opts.applicationName = "MotifRackXS";
+    opts.filenameSuffix = "settings";
+    opts.folderName = "MotifRackXS";
+    opts.osxLibrarySubFolder = "Application Support";
+    settings_ = std::make_unique<juce::PropertiesFile>(opts);
+
     addAndMakeVisible(portBox_);
     refreshPorts();
 
@@ -72,6 +79,14 @@ MainComponent::MainComponent() {
         partButtons_[size_t(i)] = std::move(b);
     }
 
+    auditionButton_.setClickingTogglesState(true);
+    auditionButton_.setToggleState(true, juce::dontSendNotification);
+    auditionButton_.setColour(juce::TextButton::buttonOnColourId, theme::accent);
+    auditionButton_.setColour(juce::TextButton::textColourOnId, juce::Colours::black);
+    auditionButton_.setTooltip("Play a note when a voice is selected");
+    auditionButton_.onClick = [this] { saveSettings(); };
+    addAndMakeVisible(auditionButton_);
+
     voices_.onPick = [this](const Voice& v) {
         // Bank Select + Program Change on the part's own receive channel.
         worker_.post([this, v](Device& d) { d.selectVoice(v.msb, v.lsb, v.program, std::uint8_t(part_)); });
@@ -83,6 +98,11 @@ MainComponent::MainComponent() {
             worker_.setParameter(*pgm, part_, v.program);
         partVoiceNames_[size_t(part_)] = juce::String(std::string(v.name));
         dirty_ = true;
+        // Drum kits are laid out across the keyboard, so a middle-C audition is
+        // meaningless; C1 lands on a kick in Yamaha's kit mapping.
+        auditionNote_ = (v.kind == VoiceKind::Drum) ? 36 : 60;
+        if (auditionButton_.getToggleState())
+            juce::Timer::callAfterDelay(120, [this] { audition(); });
     };
 
     // Arm the rack's per-part ARP MIDI Out (38 pp 01). Without this the
@@ -114,6 +134,7 @@ MainComponent::MainComponent() {
         setStatus(dest.empty() ? "thru off"
                                : "forwarding the rack's notes to " + juce::String(dest),
                   dest.empty() ? theme::dim : theme::good);
+        saveSettings();
     };
     addAndMakeVisible(thruBox_);
 
@@ -176,7 +197,8 @@ MainComponent::MainComponent() {
     }
 
     selectPart(0);
-    setSize(1180, 760);
+    loadSettings();
+    setSize(1240, 780);
     startTimerHz(20);
 
     // One rack, one port -- make the app useful on launch instead of making
@@ -187,6 +209,8 @@ MainComponent::MainComponent() {
 
 MainComponent::~MainComponent() {
     stopTimer();
+    stopAudition();
+    saveSettings();
     setLookAndFeel(nullptr);
 }
 
@@ -250,7 +274,9 @@ void MainComponent::connect() {
 }
 
 void MainComponent::selectPart(int part) {
+    stopAudition();
     part_ = juce::jlimit(0, 15, part);
+    saveSettings();
     for (int i = 0; i < 16; ++i) {
         auto& b = *partButtons_[size_t(i)];
         b.setColour(juce::TextButton::buttonColourId,
@@ -363,6 +389,60 @@ void MainComponent::updateArpWarning() {
               hold ? theme::bad : theme::warn);
 }
 
+/// Plays a short note on the selected part so a browsed voice can be heard.
+void MainComponent::audition() {
+    if (!worker_.isOpen()) return;
+    stopAudition();
+    const std::uint8_t ch = std::uint8_t(part_ & 0x0F);
+    const std::uint8_t note = std::uint8_t(auditionNote_);
+    worker_.post([ch, note](Device& d) {
+        const Bytes on{std::uint8_t(0x90 | ch), note, 100};
+        d.send(on);
+    });
+    auditionSounding_ = true;
+    juce::Timer::callAfterDelay(900, [this] { stopAudition(); });
+}
+
+void MainComponent::stopAudition() {
+    if (!auditionSounding_ || !worker_.isOpen()) return;
+    auditionSounding_ = false;
+    const std::uint8_t ch = std::uint8_t(part_ & 0x0F);
+    const std::uint8_t note = std::uint8_t(auditionNote_);
+    worker_.post([ch, note](Device& d) {
+        const Bytes off{std::uint8_t(0x80 | ch), note, 0};
+        d.send(off);
+    });
+}
+
+void MainComponent::loadSettings() {
+    if (!settings_) return;
+    const auto port = settings_->getValue("port", {});
+    if (port.isNotEmpty())
+        for (int i = 0; i < portBox_.getNumItems(); ++i)
+            if (portBox_.getItemText(i) == port)
+                portBox_.setSelectedItemIndex(i, juce::dontSendNotification);
+    auditionButton_.setToggleState(settings_->getBoolValue("audition", true),
+                                   juce::dontSendNotification);
+    tabs_.setCurrentTabIndex(settings_->getIntValue("tab", 0), false);
+    const auto thru = settings_->getValue("thru", {});
+    if (thru.isNotEmpty())
+        for (int i = 0; i < thruBox_.getNumItems(); ++i)
+            if (thruBox_.getItemText(i) == thru)
+                thruBox_.setSelectedItemIndex(i, juce::sendNotificationSync);
+    selectPart(settings_->getIntValue("part", 0));
+}
+
+void MainComponent::saveSettings() {
+    if (!settings_) return;
+    settings_->setValue("port", portBox_.getText());
+    settings_->setValue("part", part_);
+    settings_->setValue("tab", tabs_.getCurrentTabIndex());
+    settings_->setValue("audition", auditionButton_.getToggleState());
+    settings_->setValue("thru", thruBox_.getSelectedId() <= 1 ? juce::String()
+                                                             : thruBox_.getText());
+    settings_->saveIfNeeded();
+}
+
 void MainComponent::pushKnob(ParamKnob& k) {
     if (!k.parameter() || !worker_.isOpen()) return;
     worker_.setParameter(*k.parameter(), part_, k.raw());
@@ -445,5 +525,8 @@ void MainComponent::resized() {
     const int kw = knobRow.getWidth() / int(knobs_.size());
     for (auto& k : knobs_) k->setBounds(knobRow.removeFromLeft(kw).reduced(4));
 
+    auto tabRow = r.removeFromTop(28);
+    auditionButton_.setBounds(tabRow.removeFromRight(96).reduced(10, 2));
+    r = r.withTop(tabRow.getY());
     tabs_.setBounds(r.reduced(10, 4));
 }

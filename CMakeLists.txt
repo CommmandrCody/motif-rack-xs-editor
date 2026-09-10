@@ -60,6 +60,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/JUCE/CMakeLists.txt")
         motif-xs-core
         juce::juce_gui_basics
         juce::juce_gui_extra
+        juce::juce_data_structures
         PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags)
