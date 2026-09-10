@@ -57,6 +57,15 @@ public:
     /// Milliseconds between coalesced write flushes.
     void setFlushInterval(std::chrono::milliseconds ms) { flush_ = ms; }
 
+    /// Counts changes made *to* the rack. Reads never bump it, so a caller can
+    /// tell "the user edited something" from "we polled the device", which is
+    /// what decides whether a saved project is stale.
+    [[nodiscard]] std::uint64_t changeCount() const { return changes_.load(); }
+
+    /// For changes that bypass setParameter -- applying a custom patch, or a
+    /// raw Bank Select and Program Change.
+    void noteExternalChange() { changes_.fetch_add(1); }
+
 private:
     void run();
     void flushWrites();
@@ -65,6 +74,7 @@ private:
     Device device_;
     std::thread thread_;
     std::atomic<bool> quit_{false};
+    std::atomic<std::uint64_t> changes_{0};
     std::atomic<bool> open_{false};
     std::chrono::milliseconds flush_{15};
 

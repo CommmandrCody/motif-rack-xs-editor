@@ -31,6 +31,11 @@ constexpr Macro kMacros[] = {
 
 constexpr int kNumMacros = int(std::size(kMacros));
 
+/// How long the rack must be untouched before an automatic capture runs.
+/// Long enough not to fire between two knob turns, short enough that a project
+/// saved shortly after editing is current.
+constexpr juce::int64 kAutoCaptureQuietMs = 4000;
+
 }  // namespace
 
 juce::AudioProcessorValueTreeState::ParameterLayout MotifXsProcessor::makeLayout() {
@@ -148,6 +153,43 @@ void MotifXsProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
         }
     }
     if (changed) automationDirty_.store(true);
+
+    // Auto-capture must not run against a rolling transport.
+    if (auto* ph = getPlayHead()) {
+        if (const auto pos = ph->getPosition())
+            transportPlaying_.store(pos->getIsPlaying() || pos->getIsRecording());
+    }
+}
+
+bool MotifXsProcessor::stateIsStale() const {
+    return worker_->changeCount() != capturedAtChange_;
+}
+
+/// Captures once the user has stopped fiddling and the transport is idle.
+///
+/// Two conditions, both necessary. Capturing while the transport rolls would
+/// put five seconds of bulk traffic against the notes being played. Capturing
+/// when nothing changed would be pointless traffic -- so the worker counts
+/// changes *to* the rack, and reads never bump it.
+void MotifXsProcessor::maybeAutoCapture() {
+    if (capturing_.load() || transportPlaying_.load() || !worker_->isOpen()) return;
+
+    const auto changes = worker_->changeCount();
+    const auto now = juce::Time::currentTimeMillis();
+    if (changes != lastSeenChange_) {
+        lastSeenChange_ = changes;
+        lastChangeMs_ = now;
+        return;                                   // still moving; wait for quiet
+    }
+    if (changes == capturedAtChange_) return;     // nothing new since last capture
+    if (now - lastChangeMs_ < kAutoCaptureQuietMs) return;
+
+    capturing_.store(true);
+    const auto at = changes;
+    captureNow([this, at](bool ok, juce::String) {
+        if (ok) capturedAtChange_ = at;
+        capturing_.store(false);
+    });
 }
 
 void MotifXsProcessor::pushAutomationToDevice() {

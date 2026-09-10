@@ -101,6 +101,7 @@ void DeviceWorker::flushWrites() {
         std::lock_guard lock(mutex_);
         batch.swap(pending_);
     }
+    if (!batch.empty()) changes_.fetch_add(1);
     for (auto& [addr, pv] : batch) {
         device_.writeParameter(*pv.first, pv.second,
                                // recover the index from the resolved address

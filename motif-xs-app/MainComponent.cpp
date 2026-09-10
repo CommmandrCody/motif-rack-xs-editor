@@ -111,6 +111,7 @@ MainComponent::MainComponent(DeviceWorker& worker) : worker_(worker) {
     voices_.onPick = [this](const Voice& v) {
         // Bank Select + Program Change on the part's own receive channel.
         worker_.post([this, v](Device& d) { d.selectVoice(v.msb, v.lsb, v.program, std::uint8_t(part_)); });
+        worker_.noteExternalChange();
         if (const auto* msb = param("multi_part_bank_select"))
             worker_.setParameter(*msb, part_, v.msb);
         if (const auto* lsb = param("multi_part_bank_select_lsb"))
@@ -401,6 +402,7 @@ void MainComponent::loadCustomPatch() {
                 return;
             }
             applyVoice(d, *v, part);
+            worker_.noteExternalChange();
             const juce::String nm(voiceName(*v));
             setStatus("applied '" + nm + "' to part " + juce::String(part + 1), theme::good);
             juce::MessageManager::callAsync([this, part, nm] {

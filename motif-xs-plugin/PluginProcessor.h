@@ -64,12 +64,20 @@ public:
     void captureNow(std::function<void(bool, juce::String)> done = {});
     [[nodiscard]] juce::String stateSummary() const;
 
+    /// True when the rack has been changed since the last capture, so a project
+    /// saved right now would not bring back what you are hearing.
+    [[nodiscard]] bool stateIsStale() const;
+
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout makeLayout();
-    /// Drains automation movement on the message thread at a musical rate.
-    /// processBlock only flags that something moved; sending happens here and
-    /// then on the worker, so the audio thread never touches CoreMIDI.
-    void timerCallback() override { pushAutomationToDevice(); }
+    /// Drains automation movement on the message thread at a musical rate, and
+    /// keeps the saved state current. processBlock only flags that something
+    /// moved; sending happens here and then on the worker, so the audio thread
+    /// never touches CoreMIDI.
+    void timerCallback() override {
+        pushAutomationToDevice();
+        maybeAutoCapture();
+    }
     void pushAutomationToDevice();
 
     /// Shared with every other instance in this host process.
@@ -96,6 +104,16 @@ private:
     std::array<RelayedMessage, kRelayCapacity> relayQueue_{};
     std::atomic<bool> relayOn_{false};
     std::atomic<int> relayDropped_{0};
+
+    /// Automatic capture. getStateInformation cannot block on a five-second
+    /// round trip to the rack, so the state has to already be there when the
+    /// host asks -- which means capturing ahead of time, not on demand.
+    void maybeAutoCapture();
+    std::atomic<bool> transportPlaying_{false};
+    std::atomic<bool> capturing_{false};
+    std::uint64_t lastSeenChange_{0};
+    std::uint64_t capturedAtChange_{0};
+    juce::int64 lastChangeMs_{0};
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MotifXsProcessor)
 };

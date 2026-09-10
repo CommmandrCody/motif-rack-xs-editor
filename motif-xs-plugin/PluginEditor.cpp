@@ -14,13 +14,14 @@ MotifXsEditor::MotifXsEditor(MotifXsProcessor& p)
     hint_.setFont(juce::FontOptions(11.0f));
     hint_.setColour(juce::Label::textColourId, theme::dim);
     hint_.setJustificationType(juce::Justification::centredRight);
-    hint_.setText("capture before saving the project, or the rack's setup is not stored",
+    hint_.setText("the rack is captured automatically a few seconds after you stop editing",
                   juce::dontSendNotification);
     addAndMakeVisible(hint_);
 
-    // The host saves whatever was last captured. Doing this automatically on
-    // every host save is not possible -- getStateInformation must not block on
-    // a 2.7 kB round trip to the rack -- so it is an explicit action.
+    // Capture runs by itself once editing stops and the transport is idle, so
+    // saving a project normally just works. This button is for forcing it --
+    // getStateInformation cannot block on a five-second round trip to the rack,
+    // so the state has to already be there when the host asks.
     captureButton_.setColour(juce::TextButton::buttonColourId, theme::accentDim);
     captureButton_.onClick = [this] {
         stateLabel_.setText("capturing...", juce::dontSendNotification);
@@ -65,7 +66,7 @@ MotifXsEditor::MotifXsEditor(MotifXsProcessor& p)
         const bool on = midiOutButton_.getToggleState();
         processor_.setMidiOutEnabled(on);
         hint_.setText(on ? "arp is being sent to this track - arm ARP and OUT on the part too"
-                         : "capture before saving the project, or the rack's setup is not stored",
+                         : "the rack is captured automatically a few seconds after you stop editing",
                       juce::dontSendNotification);
     };
     addAndMakeVisible(midiOutButton_);
@@ -73,9 +74,19 @@ MotifXsEditor::MotifXsEditor(MotifXsProcessor& p)
     setResizable(true, true);
     setResizeLimits(980, 620, 3000, 2000);
     setSize(1240, 800);
+    startTimerHz(2);
+}
+
+void MotifXsEditor::timerCallback() {
+    const bool stale = processor_.stateIsStale();
+    stateLabel_.setText(stale ? "project state: capturing changes..."
+                              : "project state: " + processor_.stateSummary(),
+                        juce::dontSendNotification);
+    stateLabel_.setColour(juce::Label::textColourId, stale ? theme::warn : theme::dim);
 }
 
 MotifXsEditor::~MotifXsEditor() {
+    stopTimer();
     processor_.apvts().removeParameterListener("part", this);
     ui_.onPartChanged = nullptr;
     setLookAndFeel(nullptr);
