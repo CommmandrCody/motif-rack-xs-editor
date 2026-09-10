@@ -1,6 +1,7 @@
 .DS_Store
 build-verify/
 build/
+external/JUCE/
 reference/*.pdf
 reference/*.txt
 scratch/

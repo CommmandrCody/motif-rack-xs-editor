@@ -23,13 +23,37 @@ tests/             core tests, no hardware needed
 
 ## Build
 
+The CLI, core and tests need nothing but CMake 3.21+ and a C++20 compiler:
+
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j8
 ./build/motif-xs-tests
 ```
 
-Requires CMake 3.21+ and a C++20 compiler. Apple Silicon native (arm64).
+The standalone GUI additionally needs JUCE, which is not vendored:
+
+```sh
+git clone --depth 1 --branch 8.0.4 https://github.com/juce-framework/JUCE.git external/JUCE
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --target motif-xs-app -j8
+open "build/motif-xs-app_artefacts/Release/Motif Rack XS.app"
+```
+
+CMake skips the app target if `external/JUCE` is absent, so the core and CLI
+always build. Apple Silicon native (arm64).
+
+## The app
+
+Auto-connects to MOTIF-RACK XS Port1 and reads the rack's live state.
+
+* 16-part strip with each part's resolved voice name
+* Voice browser: 1217 voices in collapsible categories, searchable, bank filter
+* Arp browser: 6633 types filtered by text, category, metre and tempo range
+* Nine PERFORM macros (volume, pan, cutoff, reso, attack, decay, release,
+  reverb, chorus) bound to Multi Part offsets, so they shift all eight elements
+  together the way the rack's own knobs do
+* **PANIC** -- all notes off plus ARP switch/hold cleared on all 16 parts
 
 ## Use
 
