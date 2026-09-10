@@ -117,6 +117,23 @@ part is a user error worth warning about.
 * The plugin produces no audio. Register it as an effect with a silent
   passthrough; Live will not host a plugin that declares no audio bus cleanly.
 
+## Porting
+
+Everything except `motif-xs-core/src/device.cpp` is portable C++20 -- the
+parameter model, the catalogs, state capture, the worker, the whole UI. That
+one file is CoreMIDI: endpoint enumeration, an input port with a read callback,
+and `MIDISend`.
+
+A Windows port is that file reimplemented against WinMM or WinRT MIDI behind the
+same `Device` interface. Two details it must preserve, both learned the hard
+way:
+
+* **strip realtime bytes before SysEx reassembly.** The rack floods Active
+  Sensing (`FE`), and it can land mid-message.
+* **only accept a reply that arrived after the request was sent.** The rack
+  transmits Parameter Changes of its own accord when its front panel is touched,
+  and they are byte-identical to a reply. See `state-sync.md`.
+
 ## Build
 
 CMake + JUCE as a submodule. The core is a plain C++20 static library with no

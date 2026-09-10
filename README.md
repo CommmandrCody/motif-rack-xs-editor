@@ -9,6 +9,24 @@ all driving a physical MOTIF-RACK XS. The plugin passes Apple's `auval`
 validation and stores the rack's whole rig -- Multi *and* all 16 part voices --
 in the DAW project, captured automatically so a saved session comes back.
 
+## Requirements
+
+| | |
+|---|---|
+| Platform | **macOS only** for now, universal (Apple Silicon + Intel) |
+| Hardware | a Yamaha MOTIF-RACK XS, connected by USB |
+| Build | CMake 3.21+, a C++20 compiler; JUCE for the app and plugin |
+
+**Windows is not supported yet**, and the reason is narrow: the whole project is
+portable C++20 except `motif-xs-core/src/device.cpp`, which is CoreMIDI. A
+Windows build needs a WinMM or WinRT MIDI implementation behind the same
+`Device` interface -- one file, no changes anywhere else. That is the single
+most useful contribution anyone with a Windows machine could make.
+
+The binaries are **unsigned and not notarized**, so on any Mac other than the
+one that built them, Gatekeeper will refuse to open them until you allow it in
+System Settings → Privacy & Security. Building from source avoids that.
+
 ## Layout
 
 ```
