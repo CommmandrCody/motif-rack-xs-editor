@@ -1976,7 +1976,7 @@
    "name": "Audio Input Mode",
    "address": {
     "high": "00",
-    "mid": "pp",
+    "mid": "41",
     "low": "00"
    },
    "size": 1,
@@ -1997,7 +1997,7 @@
    "name": "Audio Input Part Volume",
    "address": {
     "high": "00",
-    "mid": "pp",
+    "mid": "41",
     "low": "01"
    },
    "size": 1,
@@ -2018,7 +2018,7 @@
    "name": "Audio Input Part Pan",
    "address": {
     "high": "00",
-    "mid": "pp",
+    "mid": "41",
     "low": "02"
    },
    "size": 1,
@@ -2039,7 +2039,7 @@
    "name": "Audio Input Part Reverb Send",
    "address": {
     "high": "00",
-    "mid": "pp",
+    "mid": "41",
     "low": "03"
    },
    "size": 1,
@@ -2060,7 +2060,7 @@
    "name": "Audio Input Part Chorus Send",
    "address": {
     "high": "00",
-    "mid": "pp",
+    "mid": "41",
     "low": "04"
    },
    "size": 1,
@@ -2081,7 +2081,7 @@
    "name": "reserved",
    "address": {
     "high": "00",
-    "mid": "pp",
+    "mid": "41",
     "low": "05"
    },
    "size": 1,
@@ -2102,7 +2102,7 @@
    "name": "Audio Input Part Dry Level",
    "address": {
     "high": "00",
-    "mid": "pp",
+    "mid": "41",
     "low": "06"
    },
    "size": 1,
@@ -2123,7 +2123,7 @@
    "name": "Audio Input Part Output Select",
    "address": {
     "high": "00",
-    "mid": "pp",
+    "mid": "41",
     "low": "07"
    },
    "size": 1,
@@ -21843,10 +21843,11 @@
    "max": 127,
    "literals": [],
    "range_text": "00 – 7F",
-   "description": "1 – 128",
-   "notes": "",
+   "description": "0 - 127 (0-based)",
+   "notes": "The Data List prints '1 - 128', but the wire value is 0-based. Verified: part 1 reported program 62 while the loaded kit was 'Synthetic Kit', which is 0-based program 62 of the drum Preset bank; a part set to the first voice reports 0, which '1 - 128' cannot express. No conversion is needed between this field and MIDI Program Change.",
    "reserved": false,
-   "source_page": 74
+   "source_page": 74,
+   "corrected": true
   },
   {
    "source": "datalist",
@@ -23921,7 +23922,7 @@
    "name": "Audio Input Mode",
    "address": {
     "high": "39",
-    "mid": "pp",
+    "mid": "41",
     "low": "00"
    },
    "size": 1,
@@ -23942,7 +23943,7 @@
    "name": "Audio Input Part Volume",
    "address": {
     "high": "39",
-    "mid": "pp",
+    "mid": "41",
     "low": "01"
    },
    "size": 1,
@@ -23963,7 +23964,7 @@
    "name": "Audio Input Part Pan",
    "address": {
     "high": "39",
-    "mid": "pp",
+    "mid": "41",
     "low": "02"
    },
    "size": 1,
@@ -23984,7 +23985,7 @@
    "name": "Audio Input Part Reverb Send",
    "address": {
     "high": "39",
-    "mid": "pp",
+    "mid": "41",
     "low": "03"
    },
    "size": 1,
@@ -24005,7 +24006,7 @@
    "name": "Audio Input Part Chorus Send",
    "address": {
     "high": "39",
-    "mid": "pp",
+    "mid": "41",
     "low": "04"
    },
    "size": 1,
@@ -24026,7 +24027,7 @@
    "name": "reserved",
    "address": {
     "high": "39",
-    "mid": "pp",
+    "mid": "41",
     "low": "05"
    },
    "size": 1,
@@ -24047,7 +24048,7 @@
    "name": "Audio Input Part Dry Level",
    "address": {
     "high": "39",
-    "mid": "pp",
+    "mid": "41",
     "low": "06"
    },
    "size": 1,
@@ -24068,7 +24069,7 @@
    "name": "Audio Input Part Output Select",
    "address": {
     "high": "39",
-    "mid": "pp",
+    "mid": "41",
     "low": "07"
    },
    "size": 1,

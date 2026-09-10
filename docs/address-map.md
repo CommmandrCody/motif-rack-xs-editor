@@ -123,8 +123,13 @@ comparing the reply length to the documented size:
 | Normal Voice Element | 130 | 0 | 0 |
 | Drum Voice Common | 186 | 0 | 0 |
 | Drum Voice Key | 32 | 0 | 0 |
-| **Total** | **657** | **0** | **0** |
+| Multi Common | 106 | 0 | 0 |
+| Multi Part | 96 | 0 | 0 |
+| **Total** | **859** | **0** | **0** |
 
 Every silent address was either marked `reserved` or belonged to a block
-inactive in the current mode. Multi (`36/37/38`) is **not yet validated** —
-it requires Multi mode, which the unit would not enter over SysEx.
+inactive in the current mode. Multi required entering Multi mode from the front
+panel, since the documented Mode Change parameter is inert (see `protocol.md`).
+
+Part indexing was checked across all 16 parts, and the Audio In Part was found
+to sit at a fixed mid byte of `41` despite being printed as `pp`.

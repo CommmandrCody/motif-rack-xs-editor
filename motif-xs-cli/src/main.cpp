@@ -131,21 +131,28 @@ int cmdStatus() {
     std::printf("device number : %u\n", info.deviceNumber);
     std::printf("firmware      : %.1f\n", double(info.firmwareVersion));
 
+    long modeValue = -1;
     if (const auto* mode = findParameter(Scope::ModeChange, 0x0A, 0x00, 0x01)) {
         if (auto v = d.readParameter(*mode)) {
+            modeValue = long(*v);
             const char* name = (*v == 0) ? "Voice" : (*v == 5) ? "Multi" : (*v == 6) ? "Demo" : "?";
-            std::printf("mode          : %s (%ld)\n", name, long(*v));
+            std::printf("mode          : %s (%ld)\n", name, modeValue);
         }
     }
 
-    // Which edit buffer answers tells us what is actually loaded.
+    // Which edit buffer answers tells us what is loaded. In Multi mode the
+    // Voice blocks also answer -- they describe the *selected part's* voice --
+    // so report the Multi context first or the mode reads as "Drum Voice".
     const bool normal = d.readAddress({0x40, 0x00, 0x00}).has_value();
     const bool drum = d.readAddress({0x46, 0x00, 0x00}).has_value();
     const bool multi = d.readAddress({0x36, 0x00, 0x00}).has_value();
-    std::printf("edit buffer   : %s\n", normal ? "Normal Voice"
-                                        : drum ? "Drum Voice"
-                                        : multi ? "Multi"
-                                                : "none responding");
+    if (multi) {
+        std::printf("edit buffer   : Multi (selected part's voice: %s)\n",
+                    normal ? "Normal" : drum ? "Drum" : "none");
+    } else {
+        std::printf("edit buffer   : %s\n",
+                    normal ? "Normal Voice" : drum ? "Drum Voice" : "none responding");
+    }
 
     auto name = [&](std::uint8_t high) {
         std::string s;
@@ -159,6 +166,25 @@ int cmdStatus() {
     };
     if (normal) std::printf("voice name    : %s\n", name(0x40).c_str());
     if (drum) std::printf("kit name      : %s\n", name(0x46).c_str());
+
+    if (multi) {
+        // Resolve each part's bank/program against the factory catalog.
+        // These are 0-based on the wire despite the Data List's "1 - 128".
+        std::puts("parts         :");
+        for (int part = 0; part < 16; ++part) {
+            const auto msb = d.readAddress({0x37, std::uint8_t(part), 0x01});
+            const auto lsb = d.readAddress({0x37, std::uint8_t(part), 0x02});
+            const auto pgm = d.readAddress({0x37, std::uint8_t(part), 0x03});
+            const auto ch = d.readAddress({0x37, std::uint8_t(part), 0x04});
+            if (!msb || !lsb || !pgm || msb->empty() || lsb->empty() || pgm->empty()) continue;
+            const auto* v = findVoice((*msb)[0], (*lsb)[0], (*pgm)[0]);
+            char chan[8] = "?";
+            if (ch && !ch->empty())
+                std::snprintf(chan, sizeof(chan), (*ch)[0] == 0x7F ? "off" : "%d", (*ch)[0] + 1);
+            std::printf("  %2d  ch=%-3s  %s\n", part + 1, chan,
+                        v ? std::string(v->name).c_str() : "(unmapped)");
+        }
+    }
 
     checkPatchReceiveSwitches(d);
     return 0;

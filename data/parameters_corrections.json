@@ -1,0 +1,14 @@
+{
+  "_comment": [
+    "Hardware-verified corrections to parameters whose published description is",
+    "wrong or misleading. Keyed by parameter id. Merged by",
+    "tools/build_parameters.py, which fails loudly if an id no longer exists so",
+    "a correction cannot silently rot when the extractor is re-run."
+  ],
+  "corrections": {
+    "multi_part_program_number": {
+      "description": "0 - 127 (0-based)",
+      "notes": "The Data List prints '1 - 128', but the wire value is 0-based. Verified: part 1 reported program 62 while the loaded kit was 'Synthetic Kit', which is 0-based program 62 of the drum Preset bank; a part set to the first voice reports 0, which '1 - 128' cannot express. No conversion is needed between this field and MIDI Program Change."
+    }
+  }
+}

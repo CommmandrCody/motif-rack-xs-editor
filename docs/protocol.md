@@ -126,7 +126,11 @@ versa. See `state-sync.md`.
    every documented value (`00`–`05`) to both `0A 00 00` and `0A 00 01` were
    accepted without error and did not change the mode on the reference unit.
    Entering Multi mode currently requires the front panel. Unresolved.
-4. **Active Sensing (`FE`) floods the input.** The unit sends it continuously;
+4. **[discrepancy] Multi Part `Program Number` is 0-based, not "1 - 128".**
+   `37 pp 03` is documented as ranging 1-128; the hardware reports 0-based
+   values matching MIDI Program Change exactly. Do not convert. See
+   `multi-architecture.md`.
+5. **Active Sensing (`FE`) floods the input.** The unit sends it continuously;
    strip `FE` and `F8` before SysEx reassembly.
 
 ## Clock

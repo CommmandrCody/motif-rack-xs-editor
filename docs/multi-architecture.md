@@ -2,11 +2,10 @@
 
 **Authority:** *Data List* pp. 63, 73–75 (`MULTI COMMON`, `MULTI PART`).
 
-> **Status: not yet hardware-validated.** The Multi blocks only answer when the
-> unit is in Multi mode, and the reference unit would not enter Multi mode over
-> SysEx (see `protocol.md`, gotcha 3). Everything below is from the published
-> tables and matches the documented block sizes, but has not been confirmed on
-> the wire the way the System, Voice and Drum maps have.
+> **Status: hardware-validated.** 202 concrete addresses read back with exactly
+> the documented byte count, 0 size mismatches, 0 unexplained silences. Part
+> indexing verified across all 16 parts. Multi mode had to be entered from the
+> front panel; see `protocol.md`, gotcha 3.
 
 ## Shape
 
@@ -31,7 +30,7 @@ part's arp settings are *not* in the part block. Total per part is 127 bytes.
 | Low | Parameter | Notes |
 |---|---|---|
 | `01` / `02` | Bank Select MSB / LSB | see `address-map.md` for bank table |
-| `03` | Program Number | **1–128** in this table (1-based), unlike Program Change |
+| `03` | Program Number | **0–127, 0-based** -- the table's "1 - 128" is wrong, see below |
 | `04` | Receive Channel | 1–16, off (`7F`) |
 | `05` | Mono/Poly | |
 | `06` / `07` | Velocity Limit Low / High | |
@@ -50,9 +49,17 @@ part's arp settings are *not* in the part block. Total per part is 127 bytes.
 
 Bold entries are the PERFORM macro controls.
 
-> **Watch the off-by-one.** `Program Number` here is documented 1–128, while
-> MIDI Program Change is 0–127 and `data/voices.json` stores 0-based. Convert
-> at the boundary; this is an easy source of "everything is one patch out".
+> **[discrepancy] `Program Number` is 0-based, despite the table.** The Data
+> List prints its range as "1 - 128". The hardware reports 0-based values:
+> part 1 read back program `62` while the loaded kit was `Synthetic Kit`, which
+> is 0-based program 62 of the drum Preset bank, and parts set to the first
+> voice of a bank report `0` -- a value "1 - 128" cannot express. The raw range
+> column (`00 - 7F`) was right all along; only the prose was wrong.
+>
+> So **no conversion is needed** between this field, MIDI Program Change and
+> `data/voices.json`, which all use the same 0-based numbering. Converting
+> "to be safe" is what actually produces the off-by-one here. The correction
+> is recorded in `data/parameters_corrections.json`.
 
 `Param. with Voice` and `Voice with ARP` decide whether a part's stored
 settings survive a voice change. They directly affect DAW recall: with
@@ -78,11 +85,22 @@ headline feature for the Ableton workflow.
 * Bank/Program per part means the whole rack configuration is describable as
   data — which is exactly what the plugin needs to serialise.
 
+## Verified behaviour
+
+* All 16 part blocks (`37 00`..`37 0F`) respond, and the `pp` index resolves
+  correctly across the full range.
+* A Multi's part voice assignments can be read straight out of
+  `37 pp 01/02/03` (bank MSB/LSB, program) and resolved against
+  `data/voices.json` to real voice names.
+* The Audio In Part's mid byte is printed as `pp` but is fixed at `41`
+  (`39 41 00`, and `00 41 00` for the Voice-mode copy) -- it is not a part
+  index. Treating it as one makes all 8 of its addresses read back nothing.
+
 ## Open questions
 
-1. **How to enter Multi mode programmatically.** Blocking issue; the documented
-   Mode Change parameter is inert on the reference unit. Investigate whether it
-   is gated by a utility setting, or whether the unit must be left in Multi.
+1. **How to enter Multi mode programmatically.** The documented Mode Change
+   parameter is inert on the reference unit; the front panel works. Still
+   unresolved, and it blocks unattended DAW recall.
 2. Whether `37 pp` responds for parts whose Receive Channel is `off`.
-3. Multi bulk dump size and whether a full Multi (Common + 16 × 127 B) can be
+3. Multi bulk dump size and whether a full Multi (Common + 16 x 127 B) can be
    requested as one block via the Bulk Header at `0E mm nn`.

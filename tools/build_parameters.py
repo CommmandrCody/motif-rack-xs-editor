@@ -101,6 +101,15 @@ def main():
     out, seen = [], set()
     for r in raw:
         scope = SCOPE_MAP.get(r["scope"], r["scope"])
+
+        # The Audio In Part rows print their mid byte as "pp", but it is not a
+        # 0-15 part index -- the memory map (p62) fixes it at 0x41, for both the
+        # System copy (00 41 00) and the Multi copy (39 41 00). Verified on
+        # hardware: 39 41 00..07 and 00 41 00..07 both answer, with 05 silent
+        # exactly as the table marks it reserved. Left as a variable, every one
+        # of these addresses resolves to a part index and reads back nothing.
+        if r["address"][1] == "pp" and r["address"][0] in ("00", "39"):
+            r["address"][1] = "41"
         name, is_msb_lsb = clean_name(r["name"])
         if not name:
             name = "reserved"
@@ -141,6 +150,20 @@ def main():
             "reserved": name == "reserved",
             "source_page": r["page"],
         })
+
+    # Apply hardware-verified corrections to documented parameters.
+    corr_path = ROOT / "data" / "parameters_corrections.json"
+    if corr_path.exists():
+        corrections = json.loads(corr_path.read_text())["corrections"]
+        by_id = {p["id"]: p for p in out}
+        for pid, fields in corrections.items():
+            target = by_id.get(pid)
+            if target is None:
+                raise SystemExit(
+                    f"correction targets unknown parameter {pid!r}; "
+                    f"update data/parameters_corrections.json")
+            target.update(fields)
+            target["corrected"] = True
 
     # Merge in parameters established by hardware experiment where Yamaha
     # publishes no table. Kept in a separate file so regenerating from the PDF

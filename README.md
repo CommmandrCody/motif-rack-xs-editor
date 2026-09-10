@@ -80,11 +80,14 @@ physical unit and the reply length compared to the documented size:
 | Normal Voice Element | 130 | 0 | 0 |
 | Drum Voice Common | 186 | 0 | 0 |
 | Drum Voice Key | 32 | 0 | 0 |
-| **Total** | **657** | **0** | **0** |
+| Multi Common | 106 | 0 | 0 |
+| Multi Part | 96 | 0 | 0 |
+| **Total** | **859** | **0** | **0** |
 
 Also verified end to end: 10/10 randomly sampled voice names read back from the
 device match the catalog; arpeggio numbers 1, 3861 and 6633 round-trip through
-the 2-byte encoding. Multi (`36/37/38`) is **not yet validated** — see below.
+the 2-byte encoding; and all 16 Multi parts resolve their bank/program to real
+voice names.
 
 ## Things the documentation gets wrong
 
@@ -98,6 +101,11 @@ Found the hard way; all three are in `docs/protocol.md`.
 3. **Bank Select / Program Change receive can be off** (`00 00 14`, `00 00 15`).
    The reference unit shipped with both off, so every patch change was ignored
    with no error at all. `motifxs` warns about this.
+4. **Multi Part `Program Number` is 0-based**, not the documented "1 - 128".
+   Converting "to be safe" is what causes the off-by-one. Recorded in
+   `data/parameters_corrections.json`.
+5. **The Audio In Part's mid byte is fixed at `41`**, though the table prints it
+   as the part variable `pp`.
 
 ## Documented gap, closed by experiment
 
@@ -111,8 +119,9 @@ They live in `data/parameters_discovered.json`, flagged `source: "hardware"`.
 
 **Entering Multi mode over SysEx does not work** on the reference unit. Writes
 of every documented value to both candidate addresses are accepted and do
-nothing. Multi is the intended DAW working context, so this blocks validating
-the `36/37/38` address map and milestone 3. Currently requires the front panel.
+nothing; the front panel `[MULTI]` button works. The address map is now fully
+validated, but unattended DAW recall will need this solved -- or the rack left
+in Multi mode, which `Power on Mode = multi` makes permanent.
 
 ## Documentation
 
