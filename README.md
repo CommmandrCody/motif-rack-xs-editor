@@ -56,7 +56,13 @@ open "build/motif-xs-app_artefacts/Release/Motif Rack XS.app"
 ```
 
 CMake skips the app target if `external/JUCE` is absent, so the core and CLI
-always build. Apple Silicon native (arm64).
+always build.
+
+Binaries are **universal (arm64 + x86_64)**. Note that
+`CMAKE_OSX_ARCHITECTURES` must be set *before* `project()` -- afterwards the
+cache entry already exists and a non-`FORCE` `set()` is silently ignored, at
+which point CMake builds for its own architecture. A Homebrew CMake running
+under Rosetta will then quietly produce Intel binaries on an Apple Silicon Mac.
 
 ## The app
 

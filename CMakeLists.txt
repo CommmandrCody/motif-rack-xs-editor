@@ -1,9 +1,18 @@
 cmake_minimum_required(VERSION 3.21)
+
+# This MUST come before project(). project() populates CMAKE_OSX_ARCHITECTURES
+# in the cache, after which a non-FORCE set() here is silently a no-op -- and an
+# empty value makes CMake build for its own architecture. The Homebrew cmake on
+# this machine is an x86_64 binary running under Rosetta, so the whole project
+# quietly built Intel on an Apple Silicon Mac.
+if(APPLE AND NOT DEFINED CMAKE_OSX_ARCHITECTURES)
+    set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "Universal: Apple Silicon and Intel")
+endif()
+
 project(motif-xs VERSION 0.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_OSX_ARCHITECTURES "arm64" CACHE STRING "Apple Silicon native")
 
 # The core knows nothing about JUCE, VST or any UI, so the CLI, the plugin and
 # the tests can all link it. See docs/vst-architecture.md.
