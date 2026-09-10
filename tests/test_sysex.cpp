@@ -171,7 +171,21 @@ void testCatalogs() {
 }
 
 void testParameterTable() {
-    check(allParameters().size() == 1134, "1134 parameters");
+    check(allParameters().size() == 1136, "1136 parameters");
+    // Two parameters in the otherwise-undocumented Sequencer Setup block,
+    // established by hardware experiment. Their same-named counterparts at
+    // 00 6n are Quick Setup template values, not the live settings.
+    const auto* sync = findParameterById("sequencer_setup_midi_sync");
+    check(sync != nullptr, "discovered MIDI Sync is merged");
+    if (sync) {
+        check((sync->addressFor() == Address{0x00, 0x05, 0x0B}), "MIDI Sync at 00 05 0B");
+        check(sync->min == 0 && sync->max == 2, "MIDI Sync has three values");
+    }
+    const auto* clk = findParameterById("sequencer_setup_midi_clock_out");
+    check(clk != nullptr, "discovered MIDI Clock Out is merged");
+    if (clk) check(clk->min == 0 && clk->max == 1, "MIDI Clock Out has two values");
+    // the Quick Setup template copies must still be distinct
+    check(findParameterById("system_midi_sync") != nullptr, "Quick Setup MIDI Sync kept");
     // Mode Change lives at 0A 00 01, not the 0A 00 00 in the p62 memory map.
     check(findParameter(Scope::ModeChange, 0x0A, 0x00, 0x01) != nullptr,
           "mode change at 0A 00 01");

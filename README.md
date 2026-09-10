@@ -54,7 +54,7 @@ Extracted from Yamaha's published documentation, not from any binary.
 
 | File | Contents |
 |---|---|
-| `data/parameters.json` | 1134 parameters (918 non-reserved) across 10 scopes |
+| `data/parameters.json` | 1136 parameters (920 non-reserved) across 10 scopes |
 | `data/voices.json` | 1217 factory voices with bank/MSB/LSB/program and categories |
 | `data/arpeggios.json` | 6633 arpeggio types with category, tempo, metre, flags |
 
@@ -98,6 +98,14 @@ Found the hard way; all three are in `docs/protocol.md`.
 3. **Bank Select / Program Change receive can be off** (`00 00 14`, `00 00 15`).
    The reference unit shipped with both off, so every patch change was ignored
    with no error at all. `motifxs` warns about this.
+
+## Documented gap, closed by experiment
+
+Yamaha lists Sequencer Setup (`00 05 00`) as a 22-byte bulk block but publishes
+no parameter table for it. Probing all 22 addresses found exactly two that
+answer: `00 05 0B` **MIDI Sync** and `00 05 0C` **MIDI Clock Out**, confirmed by
+panel reading, value-range fingerprinting and the Quick Setup block's ordering.
+They live in `data/parameters_discovered.json`, flagged `source: "hardware"`.
 
 ## Known issue
 

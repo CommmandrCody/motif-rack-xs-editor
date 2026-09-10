@@ -129,6 +129,21 @@ versa. See `state-sync.md`.
 4. **Active Sensing (`FE`) floods the input.** The unit sends it continuously;
    strip `FE` and `F8` before SysEx reassembly.
 
+## Clock
+
+**MIDI Sync** (`00 05 0B`, hardware-discovered) decides whether arpeggios follow
+the DAW or the rack's own clock:
+
+| Value | Meaning |
+|---|---|
+| `0` | internal -- ignores incoming clock |
+| `1` | external -- follows incoming MIDI clock **only**; silent without it |
+| `2` | auto -- follows incoming clock when present, internal otherwise |
+
+For DAW use prefer `auto`. On `external` the arpeggiators produce nothing at all
+unless the host is actively sending MIDI clock, which reads as "the arpeggiator
+is broken".
+
 ## Rate limiting
 
 `00 00 1F` *Bulk Interval* (0–30 ms) governs the gap the unit wants between

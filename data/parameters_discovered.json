@@ -1,0 +1,61 @@
+{
+ "_comment": [
+  "Parameters established by hardware experiment, NOT from published Yamaha",
+  "documentation. The Data List lists Sequencer Setup (00 05 00) as a 22-byte",
+  "bulk block but publishes no parameter table for it -- the single gap in the",
+  "address map.",
+  "",
+  "All 22 addresses were probed; exactly two respond to a Parameter Request.",
+  "Identified by: (a) the owner reading the front panel as 'external' while",
+  "00 05 0B held 01, matching index 1 of internal/external/auto; (b) accepted",
+  "value ranges -- 0B clamps at 2 (three values), 0C clamps at 1 (two values);",
+  "(c) the Quick Setup template block (00 6n) carries MIDI Sync then MIDI Clock",
+  "Out in adjacent slots 09/0A, the same order and adjacency seen here.",
+  "",
+  "These are merged into parameters.json by tools/build_parameters.py and are",
+  "flagged with source: 'hardware' so they can be told apart from documented",
+  "parameters."
+ ],
+ "parameters": [
+  {
+   "id": "sequencer_setup_midi_sync",
+   "scope": "system",
+   "name": "MIDI Sync",
+   "address": {
+    "high": "00",
+    "mid": "05",
+    "low": "0B"
+   },
+   "size": 1,
+   "encoding": "direct",
+   "min": 0,
+   "max": 2,
+   "literals": [],
+   "range_text": "00 - 02",
+   "description": "internal, external, auto",
+   "notes": "hardware-discovered; not in the published parameter tables. This is the LIVE setting; the same-named parameter at 00 6n is a Quick Setup template value.",
+   "reserved": false,
+   "source": "hardware"
+  },
+  {
+   "id": "sequencer_setup_midi_clock_out",
+   "scope": "system",
+   "name": "MIDI Clock Out",
+   "address": {
+    "high": "00",
+    "mid": "05",
+    "low": "0C"
+   },
+   "size": 1,
+   "encoding": "direct",
+   "min": 0,
+   "max": 1,
+   "literals": [],
+   "range_text": "00 - 01",
+   "description": "off, on",
+   "notes": "hardware-discovered; not in the published parameter tables. This is the LIVE setting; the same-named parameter at 00 6n is a Quick Setup template value.",
+   "reserved": false,
+   "source": "hardware"
+  }
+ ]
+}

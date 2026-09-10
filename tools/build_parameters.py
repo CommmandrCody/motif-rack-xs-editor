@@ -126,6 +126,7 @@ def main():
         seen.add(pid)
 
         out.append({
+            "source": "datalist",
             "id": pid,
             "scope": scope,
             "name": name,
@@ -140,6 +141,24 @@ def main():
             "reserved": name == "reserved",
             "source_page": r["page"],
         })
+
+    # Merge in parameters established by hardware experiment where Yamaha
+    # publishes no table. Kept in a separate file so regenerating from the PDF
+    # never silently drops them, and so their provenance stays visible.
+    extra_path = ROOT / "data" / "parameters_discovered.json"
+    extra = []
+    if extra_path.exists():
+        extra = json.loads(extra_path.read_text())["parameters"]
+        known = {p["id"] for p in out}
+        for e in extra:
+            if e["id"] in known:
+                # A silent skip here would quietly drop a hardware finding.
+                print(f"  warning: discovered parameter {e['id']!r} collides "
+                      f"with a documented one; not merged", file=sys.stderr)
+                continue
+            e.setdefault("source", "hardware")
+            e.setdefault("source_page", None)
+            out.append(e)
 
     doc = {
         "device": "Yamaha MOTIF-RACK XS",
@@ -158,7 +177,8 @@ def main():
     (ROOT / "data").mkdir(exist_ok=True)
     (ROOT / "data" / "parameters.json").write_text(json.dumps(doc, indent=1, ensure_ascii=False))
     print(f"wrote data/parameters.json  ({len(out)} parameters, "
-          f"{sum(1 for p in out if not p['reserved'])} non-reserved)")
+          f"{sum(1 for p in out if not p['reserved'])} non-reserved, "
+          f"{sum(1 for p in out if p.get('source') == 'hardware')} hardware-discovered)")
     from collections import Counter
     for k, v in Counter(p["scope"] for p in out).most_common():
         print(f"  {v:5d}  {k}")

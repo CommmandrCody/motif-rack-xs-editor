@@ -1138,6 +1138,8 @@ constexpr Parameter kParameters[] = {
   {"multi_part_reserved_14", "reserved", Scope::MultiPart, 0x39, 0x00, 0x05, AddressVariable::Part, 1, Encoding::Direct, 0, 127, true, ""},
   {"multi_part_audio_input_part_dry_level", "Audio Input Part Dry Level", Scope::MultiPart, 0x39, 0x00, 0x06, AddressVariable::Part, 1, Encoding::Direct, 0, 127, false, "0 - 127"},
   {"multi_part_audio_input_part_output_select", "Audio Input Part Output Select", Scope::MultiPart, 0x39, 0x00, 0x07, AddressVariable::Part, 1, Encoding::Direct, 0, 79, false, "0: L&R, 8: asnL&R, 9-15: mLAN1&2 ... mLAN13&14, 79: asnL, asnR, mLAN1 ... mLAN14 XS Data"},
+  {"sequencer_setup_midi_sync", "MIDI Sync", Scope::System, 0x00, 0x05, 0x0B, AddressVariable::None, 1, Encoding::Direct, 0, 2, false, "internal, external, auto"},
+  {"sequencer_setup_midi_clock_out", "MIDI Clock Out", Scope::System, 0x00, 0x05, 0x0C, AddressVariable::None, 1, Encoding::Direct, 0, 1, false, "off, on"},
 };
 }  // namespace
 
