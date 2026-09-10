@@ -5,6 +5,7 @@
 
 #include "motifxs/catalog.hpp"
 #include "motifxs/parameters.hpp"
+#include "motifxs/state.hpp"
 #include "motifxs/sysex.hpp"
 
 using namespace motifxs;
@@ -198,6 +199,45 @@ void testParameterTable() {
     if (key) check((key->addressFor(72) == Address{0x47, 0x48, 0x00}), "drum key 72 resolves");
 }
 
+void testBulkAndState() {
+    // A bulk dump must survive its own checksum, and a corrupted one must be
+    // rejected rather than silently trusted.
+    const Bytes data{0x10, 0x20, 0x30, 0x40};
+    Bytes msg = bulkDump(0, {0x37, 0x00, 0x00}, data);
+    const auto parsed = parseBulkDump(msg);
+    check(parsed.has_value(), "bulk dump parses");
+    if (parsed) {
+        check(parsed->checksumOk, "checksum verifies");
+        check((parsed->address == Address{0x37, 0x00, 0x00}), "bulk address");
+        check(parsed->data == data, "bulk payload");
+    }
+    msg[11] ^= 0x01;                       // corrupt one data byte
+    const auto bad = parseBulkDump(msg);
+    check(bad && !bad->checksumOk, "a corrupted bulk dump is flagged, not trusted");
+
+    // State serialisation must round-trip exactly: this is what a DAW project
+    // stores, so a lossy trip would silently lose the user's setup.
+    State st;
+    st.deviceNumber = 3;
+    st.firmware = 1.0f;
+    st.capturedAt = "2026-01-01T00:00:00Z";
+    st.note = "a note with spaces";
+    st.messages.push_back(bulkDump(0, {0x0E, 0x5F, 0x00}, {}));
+    st.messages.push_back(bulkDump(0, {0x37, 0x00, 0x00}, data));
+    st.messages.push_back(bulkDump(0, {0x0F, 0x5F, 0x00}, {}));
+
+    const auto text = toText(st);
+    const auto back = fromText(text);
+    check(back.has_value(), "state text parses");
+    if (back) {
+        check(back->messages.size() == st.messages.size(), "message count round-trips");
+        check(back->messages == st.messages, "messages round-trip byte for byte");
+        check(back->deviceNumber == 3, "device number round-trips");
+        check(back->note == st.note, "note with spaces round-trips");
+    }
+    check(!fromText("not a state file").has_value(), "junk is rejected");
+}
+
 }  // namespace
 
 int main() {
@@ -211,6 +251,7 @@ int main() {
     testVariableAddresses();
     testCatalogs();
     testParameterTable();
+    testBulkAndState();
     if (gFailures == 0) {
         std::puts("all tests passed");
         return 0;

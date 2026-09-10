@@ -63,6 +63,13 @@ public:
     [[nodiscard]] std::optional<Bytes> readAddress(
         Address, std::chrono::milliseconds timeout = std::chrono::milliseconds{150});
 
+    /// Requests a whole block by bulk dump. Far cheaper than reading a block
+    /// one parameter at a time: a 61-byte Multi Part arrives in one message.
+    /// Returns nullopt on timeout or checksum failure -- a corrupted block
+    /// silently poisoning the model is worse than a failed read.
+    [[nodiscard]] std::optional<Bytes> requestBulk(
+        Address, std::chrono::milliseconds timeout = std::chrono::milliseconds{400});
+
     [[nodiscard]] std::optional<std::int32_t> readParameter(
         const Parameter&, int index = 0,
         std::chrono::milliseconds timeout = std::chrono::milliseconds{150});

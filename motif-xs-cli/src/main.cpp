@@ -1,6 +1,7 @@
 // motifxs -- command line proof of concept (milestone 1).
 #include <charconv>
 #include <atomic>
+#include <mutex>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
@@ -12,6 +13,7 @@
 #include "motifxs/catalog.hpp"
 #include "motifxs/device.hpp"
 #include "motifxs/parameters.hpp"
+#include "motifxs/state.hpp"
 #include "motifxs/sysex.hpp"
 
 using namespace motifxs;
@@ -37,8 +39,13 @@ int usage() {
         "  motifxs arp-list [query]              search the arpeggio catalog\n"
         "  motifxs arp <slot 1-5> <number>       assign an arpeggio type\n"
         "  motifxs dump-state                    read the live edit buffer\n"
+        "  motifxs save <file> [note]            capture the whole Multi to a file\n"
+        "  motifxs load <file>                   restore a captured Multi\n"
+        "  motifxs show <file>                   describe a saved state file\n"
         "  motifxs panic                         all notes off, arpeggiators off\n"
         "  motifxs send <hex>...                 send raw MIDI bytes (e.g. B0 00 3F C0 00)\n"
+        "  motifxs dump <HH> <MM> <LL>           request a block by bulk dump\n"
+        "  motifxs listen [secs] [hex...]        print inbound SysEx, optionally after sending\n"
         "  motifxs thru <dest> [secs] [ch]       forward the rack's notes to another device\n"
         "\n"
         "  --port <name>   use a specific MIDI port (default: MOTIF ... Port1)\n");
@@ -549,6 +556,134 @@ int main(int argc, char** argv) {
     if (cmd == "params") return cmdParams(n, rest);
     if (cmd == "arp-list") return cmdArpList(n, rest);
     if (cmd == "arp") return cmdArp(n, rest);
+    if (cmd == "save") {
+        if (n < 1) return usage();
+        Device d;
+        DeviceInfo info;
+        if (!connectAndIdentify(d, &info)) return 1;
+        std::printf("capturing the Multi...\n");
+        auto st = captureState(d, [](int got) {
+            std::printf("\r  %d blocks", got);
+            std::fflush(stdout);
+        });
+        std::putchar('\n');
+        if (!st) {
+            std::fprintf(stderr, "error: the rack sent no bulk data\n");
+            std::fprintf(stderr, "hint: this captures the Multi, so the rack must be in Multi mode\n");
+            return 1;
+        }
+        st->firmware = info.firmwareVersion;
+        if (n > 1) {
+            std::string note = rest[1];
+            for (int i = 2; i < n; ++i) note += " " + std::string(rest[i]);
+            st->note = note;
+        }
+        std::string err;
+        if (!saveStateFile(*st, rest[0], &err)) {
+            std::fprintf(stderr, "error: %s\n", err.c_str());
+            return 1;
+        }
+        std::printf("saved %s  (%s)\n", rest[0], st->summary().c_str());
+        return 0;
+    }
+    if (cmd == "show") {
+        if (n < 1) return usage();
+        std::string err;
+        auto st = loadStateFile(rest[0], &err);
+        if (!st) {
+            std::fprintf(stderr, "error: %s\n", err.c_str());
+            return 1;
+        }
+        std::printf("%s\n  captured : %s\n  firmware : %.1f\n  contents : %s\n",
+                    rest[0], st->capturedAt.c_str(), double(st->firmware),
+                    st->summary().c_str());
+        if (!st->note.empty()) std::printf("  note     : %s\n", st->note.c_str());
+        // name the voice on each part, so a file says what it actually holds
+        for (const auto& m : st->messages) {
+            const auto b = parseBulkDump(m);
+            if (!b || b->address.high != 0x37 || b->data.size() < 4) continue;
+            const auto* v = findVoice(b->data[1], b->data[2], b->data[3]);
+            std::printf("    part %2d  %s\n", b->address.mid + 1,
+                        v ? std::string(v->name).c_str() : "(unmapped)");
+        }
+        return 0;
+    }
+    if (cmd == "load") {
+        if (n < 1) return usage();
+        std::string err;
+        auto st = loadStateFile(rest[0], &err);
+        if (!st) {
+            std::fprintf(stderr, "error: %s\n", err.c_str());
+            return 1;
+        }
+        Device d;
+        if (!connectAndIdentify(d)) return 1;
+        std::printf("restoring %s (%s)\n", rest[0], st->summary().c_str());
+        restoreState(d, *st, [](int i, int total) {
+            std::printf("\r  %d/%d blocks", i, total);
+            std::fflush(stdout);
+        });
+        std::putchar('\n');
+        std::puts("restored");
+        return 0;
+    }
+    if (cmd == "listen") {
+        Device d;
+        if (!connectAndIdentify(d)) return 1;
+        std::mutex mu;
+        std::vector<Bytes> seen;
+        d.setSysExListener([&](const Bytes& m) {
+            std::lock_guard lock(mu);
+            seen.push_back(m);
+        });
+        const double secs = n > 0 ? double(toLong(rest[0]).value_or(2)) : 2.0;
+        if (n > 1) {
+            Bytes raw;
+            for (int i = 1; i < n; ++i) {
+                std::string tok = rest[i];
+                for (std::size_t k = 0; k + 2 <= tok.size(); k += 2)
+                    if (const auto b = toHex(tok.substr(k, 2))) raw.push_back(std::uint8_t(*b));
+            }
+            std::printf("TX:");
+            for (auto b : raw) std::printf(" %02X", b);
+            std::putchar('\n');
+            d.send(raw);
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(long(secs * 1000)));
+        std::lock_guard lock(mu);
+        std::printf("RX %zu SysEx message(s)\n", seen.size());
+        for (const auto& m : seen) {
+            std::printf("  [%3zu bytes]", m.size());
+            for (std::size_t i = 0; i < m.size() && i < 24; ++i) std::printf(" %02X", m[i]);
+            if (m.size() > 24) std::printf(" ...");
+            std::putchar('\n');
+        }
+        return 0;
+    }
+    if (cmd == "dump") {
+        if (n < 3) return usage();
+        const auto h = toHex(rest[0]), m = toHex(rest[1]), l = toHex(rest[2]);
+        if (!h || !m || !l) {
+            std::fprintf(stderr, "error: address bytes must be hex\n");
+            return 1;
+        }
+        Device d;
+        if (!connectAndIdentify(d)) return 1;
+        const Address a{std::uint8_t(*h), std::uint8_t(*m), std::uint8_t(*l)};
+        auto data = d.requestBulk(a);
+        if (!data) {
+            std::printf("%02X %02X %02X: no dump (timeout or bad checksum)\n",
+                        a.high, a.mid, a.low);
+            return 1;
+        }
+        std::printf("%02X %02X %02X: %zu bytes\n", a.high, a.mid, a.low, data->size());
+        for (std::size_t i = 0; i < data->size(); ++i) {
+            if (i % 16 == 0) std::printf("  %02zX ", i);
+            std::printf(" %02X", (*data)[i]);
+            if (i % 16 == 15 || i + 1 == data->size()) std::putchar('\n');
+        }
+        return 0;
+    }
     if (cmd == "send") {
         if (n < 1) return usage();
         Bytes raw;

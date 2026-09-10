@@ -66,6 +66,9 @@ Auto-connects to MOTIF-RACK XS Port1 and reads the rack's live state.
 * Nine PERFORM macros (volume, pan, cutoff, reso, attack, decay, release,
   reverb, chorus) bound to Multi Part offsets, so they shift all eight elements
   together the way the rack's own knobs do
+* **SAVE / LOAD** -- capture the whole Multi (39 blocks: every part, arp and
+  effect) to a file and restore it, so a DAW session can get its rack setup
+  back. See `docs/state-sync.md`
 * **THRU** -- forward the rack's arpeggiator to another instrument (an
   INTEGRA-7, say); see `docs/midi-routing.md`
 * **PANIC** -- all notes off plus ARP switch/hold cleared on all 16 parts,
@@ -85,6 +88,9 @@ Auto-connects to MOTIF-RACK XS Port1 and reads the rack's live state.
 ./build/motifxs get  normal_voice_element_filter_cutoff_frequency 0
 ./build/motifxs set  normal_voice_element_filter_cutoff_frequency 80 0
 ./build/motifxs read 40 00 00              # raw address
+./build/motifxs save live-set.motifxs      # capture the whole Multi
+./build/motifxs show live-set.motifxs      # what a saved file holds
+./build/motifxs load live-set.motifxs      # restore it
 ./build/motifxs thru "INTEGRA-7" 30        # forward the arp to another device
 ./build/motifxs panic                      # all notes off, arpeggiators off
 ./build/motifxs dump-state                 # read the live edit buffer

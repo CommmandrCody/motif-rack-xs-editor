@@ -8,6 +8,7 @@
 
 #include "motifxs/catalog.hpp"
 #include "motifxs/parameters.hpp"
+#include "motifxs/state.hpp"
 #include "motifxs/worker.hpp"
 
 #include "Browsers.h"
@@ -91,6 +92,8 @@ private:
     void pushKnob(ParamKnob&);
     void updateArpWarning();
     void refreshThruDestinations();
+    void saveState();
+    void loadState();
     void refreshDrumPage();
     void pullDrumKey(int ee);
     void setStatus(const juce::String&, juce::Colour);
@@ -118,6 +121,11 @@ private:
     juce::TabbedComponent tabs_{juce::TabbedButtonBar::TabsAtTop};
 
     juce::TextButton panicButton_{"PANIC"};
+    // A DAW project needs the rack's setup back, not just the notes played
+    // into it. These capture and restore the whole Multi.
+    juce::TextButton saveButton_{"SAVE"};
+    juce::TextButton loadButton_{"LOAD"};
+    std::unique_ptr<juce::FileChooser> chooser_;
     // Arp state stays visible on every tab, so "what is armed on this part"
     // never needs a tab switch -- it is also what latches and runs away.
     juce::TextButton arpSwitch_{"ARP"};

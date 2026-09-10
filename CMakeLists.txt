@@ -15,6 +15,7 @@ add_library(motif-xs-core STATIC
     motif-xs-core/src/catalog_table.cpp
     motif-xs-core/src/device.cpp
     motif-xs-core/src/worker.cpp
+    motif-xs-core/src/state.cpp
 )
 target_include_directories(motif-xs-core PUBLIC motif-xs-core/include)
 

@@ -73,6 +73,23 @@ std::optional<ParameterMessage> parseParameterChange(std::span<const std::uint8_
     return out;
 }
 
+std::optional<BulkMessage> parseBulkDump(std::span<const std::uint8_t> m) {
+    // F0 43 0n 7F 03 bH bL aH aM aL dd.. cc F7 -- at least framing + counts
+    if (!matches(m, kBulkDumpHi) || m.size() < 12) return std::nullopt;
+    const int count = (int(m[5] & 0x7F) << 7) | (m[6] & 0x7F);
+    if (int(m.size()) != count + 12) return std::nullopt;   // 11 framing + checksum
+
+    BulkMessage out;
+    out.device = m[2] & 0x0F;
+    out.address = {m[7], m[8], m[9]};
+    out.data.assign(m.begin() + 10, m.end() - 2);
+
+    // the checksum covers byte count, address and data
+    const auto counted = m.subspan(5, std::size_t(count) + 5);
+    out.checksumOk = checksum(counted) == m[m.size() - 2];
+    return out;
+}
+
 bool IdentityReply::isMotifRackXs() const {
     return manufacturer == kYamahaId && family == 0x4100 && member == 0x0639;
 }

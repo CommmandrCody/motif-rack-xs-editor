@@ -62,6 +62,20 @@ struct ParameterMessage {
 /// parameter change.
 [[nodiscard]] std::optional<ParameterMessage> parseParameterChange(std::span<const std::uint8_t>);
 
+/// A decoded inbound Bulk Dump.
+struct BulkMessage {
+    std::uint8_t device{};
+    Address address{};
+    Bytes data;
+    bool checksumOk{};
+};
+
+/// Parse F0 43 0n 7F 03 bH bL aH aM aL dd.. cc F7.
+/// Returns nullopt if this is not a MOTIF-RACK XS bulk dump; a message whose
+/// checksum fails still parses but is flagged, so the caller can reject it
+/// rather than silently trusting a corrupted block.
+[[nodiscard]] std::optional<BulkMessage> parseBulkDump(std::span<const std::uint8_t>);
+
 /// A decoded Identity Reply.
 struct IdentityReply {
     std::uint8_t manufacturer{};

@@ -264,6 +264,22 @@ std::optional<Bytes> Device::readAddress(Address a, std::chrono::milliseconds ti
     return parseParameterChange(*reply)->data;
 }
 
+std::optional<Bytes> Device::requestBulk(Address a, std::chrono::milliseconds timeout) {
+    if (!isOpen()) return std::nullopt;
+    const auto mark = impl_->mark();
+    send(dumpRequest(impl_->deviceNumber, a));
+    auto reply = impl_->await(
+        [a](const Bytes& m) {
+            const auto bulk = parseBulkDump(m);
+            return bulk && bulk->address == a;
+        },
+        mark, timeout);
+    if (!reply) return std::nullopt;
+    const auto bulk = parseBulkDump(*reply);
+    if (!bulk || !bulk->checksumOk) return std::nullopt;
+    return bulk->data;
+}
+
 std::optional<std::int32_t> Device::readParameter(const Parameter& p, int index,
                                                   std::chrono::milliseconds timeout) {
     auto data = readAddress(p.addressFor(index), timeout);

@@ -91,7 +91,48 @@ There is no "tell me everything that changed" query. After any operation that
 could have moved a lot of state at once (voice change, mode change), re-read
 the affected block wholesale rather than trusting incremental messages.
 
+## Capturing the whole Multi
+
+**[verified]** The rack will hand over its entire Multi in one exchange.
+Requesting a bulk dump at the **Bulk Header for the Multi edit buffer**
+(`0E 5F 00`) makes it stream header, every block, and footer:
+
+| Blocks | Payload |
+|---|---|
+| Multi Common, Reverb, Chorus, Master EQ, Master Effect, Multi Arp | 81, 37, 38, 20, 36, 13 |
+| Part 1-16 | 61 each |
+| Part 1-16 arpeggio | 66 each |
+| Audio In Part | 8 |
+| **41 messages, 39 data blocks** | **2265 bytes** |
+
+Every payload matches the documented Bulk Dump Block byte counts exactly.
+
+This is why the Data List's aside -- *"To execute 1 Voice bulk dump request,
+designate its corresponding Bulk Header address"* -- matters more than it
+looks. **[discrepancy]** A dump request aimed at an individual block address
+(`37 00 00`, `36 00 00`, `40 00 00`) returns **nothing at all**, even though
+those addresses are listed in the Bulk Dump Block table and answer Parameter
+Requests perfectly well. Only the System blocks (`00 00 00`, `00 20 00`) dump
+individually. Bulk dumps of voice and multi data must go through the Bulk
+Header.
+
+Capturing verbatim beats a curated parameter list: nothing is quietly omitted,
+and it restores as the same blocks, so the ordering hazard below does not
+arise. Restoring sends the blocks back with a small inter-block delay
+(the rack's Bulk Interval, `00 00 1F`); too fast and blocks are dropped
+silently.
+
+Round-trip **[verified]** on hardware: capture, change the part's voice and
+volume, restore -- both come back exactly.
+
+`motifxs save <file>` / `motifxs load <file>` / `motifxs show <file>`, and the
+SAVE / LOAD buttons in the app.
+
 ## What the DAW should save
+
+The bulk capture above supersedes this list for anything in the Multi; it is
+kept because the plugin still needs to know what belongs in project state, and
+because voice-level edits live outside the Multi.
 
 Start narrow and grow. Phase 1 — enough to recreate the setup:
 

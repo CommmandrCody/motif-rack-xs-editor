@@ -61,6 +61,11 @@ MainComponent::MainComponent() {
     };
     addAndMakeVisible(panicButton_);
 
+    saveButton_.onClick = [this] { saveState(); };
+    loadButton_.onClick = [this] { loadState(); };
+    addAndMakeVisible(saveButton_);
+    addAndMakeVisible(loadButton_);
+
     statusLabel_.setFont(juce::FontOptions(12.0f));
     statusLabel_.setColour(juce::Label::textColourId, theme::dim);
     statusLabel_.setText("not connected", juce::dontSendNotification);
@@ -307,6 +312,68 @@ void MainComponent::connect() {
                               theme::warn);
             });
         pullPartState();
+    });
+}
+
+void MainComponent::saveState() {
+    if (!worker_.isOpen()) {
+        setStatus("connect to the rack first", theme::warn);
+        return;
+    }
+    chooser_ = std::make_unique<juce::FileChooser>(
+        "Save the Motif state", juce::File::getSpecialLocation(juce::File::userMusicDirectory),
+        "*.motifxs");
+    chooser_->launchAsync(juce::FileBrowserComponent::saveMode |
+                              juce::FileBrowserComponent::warnAboutOverwriting,
+                          [this](const juce::FileChooser& fc) {
+        const auto file = fc.getResult();
+        if (file == juce::File{}) return;
+        setStatus("capturing the Multi...", theme::dim);
+        worker_.post([this, file](Device& d) {
+            auto st = captureState(d);
+            if (!st) {
+                setStatus("the rack sent no bulk data - is it in Multi mode?", theme::bad);
+                return;
+            }
+            st->firmware = worker_.info().firmwareVersion;
+            std::string err;
+            const auto path = file.withFileExtension("motifxs").getFullPathName().toStdString();
+            if (!saveStateFile(*st, path, &err)) {
+                setStatus(juce::String(err), theme::bad);
+                return;
+            }
+            setStatus("saved " + juce::String(st->summary()), theme::good);
+        });
+    });
+}
+
+void MainComponent::loadState() {
+    if (!worker_.isOpen()) {
+        setStatus("connect to the rack first", theme::warn);
+        return;
+    }
+    chooser_ = std::make_unique<juce::FileChooser>(
+        "Restore a Motif state", juce::File::getSpecialLocation(juce::File::userMusicDirectory),
+        "*.motifxs");
+    chooser_->launchAsync(juce::FileBrowserComponent::openMode |
+                              juce::FileBrowserComponent::canSelectFiles,
+                          [this](const juce::FileChooser& fc) {
+        const auto file = fc.getResult();
+        if (file == juce::File{}) return;
+        const auto path = file.getFullPathName().toStdString();
+        worker_.post([this, path](Device& d) {
+            std::string err;
+            auto st = loadStateFile(path, &err);
+            if (!st) {
+                setStatus(juce::String(err), theme::bad);
+                return;
+            }
+            restoreState(d, *st);
+            setStatus("restored " + juce::String(st->summary()), theme::good);
+            juce::MessageManager::callAsync([this] {
+                juce::Timer::callAfterDelay(400, [this] { pullPartState(); });
+            });
+        });
     });
 }
 
@@ -610,7 +677,11 @@ void MainComponent::resized() {
     top.removeFromLeft(6);
     connectButton_.setBounds(top.removeFromLeft(90));
     top.removeFromLeft(10);
-    panicButton_.setBounds(top.removeFromRight(80));
+    panicButton_.setBounds(top.removeFromRight(72));
+    top.removeFromRight(6);
+    loadButton_.setBounds(top.removeFromRight(58));
+    top.removeFromRight(4);
+    saveButton_.setBounds(top.removeFromRight(58));
     top.removeFromRight(8);
     deviceLabel_.setBounds(top.removeFromRight(170));
     top.removeFromRight(8);
