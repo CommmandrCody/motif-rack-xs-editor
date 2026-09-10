@@ -87,6 +87,7 @@ private:
     void pullPartState();
     void pushKnob(ParamKnob&);
     void updateArpWarning();
+    void refreshThruDestinations();
     void setStatus(const juce::String&, juce::Colour);
     void timerCallback() override;
 
@@ -117,6 +118,11 @@ private:
     juce::TextButton arpHold_{"HOLD"};
     juce::ComboBox arpSlot_;
     juce::Label arpNameLabel_;
+    // "OUT" arms the rack's per-part ARP MIDI Out; the thru box chooses where
+    // those notes go. Both are needed, so they sit together.
+    juce::TextButton arpMidiOut_{"OUT"};
+    juce::ComboBox thruBox_;
+    juce::Label thruLabel_;
 
     std::array<std::unique_ptr<ParamKnob>, 9> knobs_;
 

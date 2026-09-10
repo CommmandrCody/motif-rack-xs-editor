@@ -73,6 +73,33 @@ struct IdentityReply {
 
 [[nodiscard]] std::optional<IdentityReply> parseIdentityReply(std::span<const std::uint8_t>);
 
+/// Extracts complete channel messages (note, CC, program, aftertouch, bend)
+/// from a MIDI byte stream, honouring running status.
+///
+/// The rack transmits its arpeggiator output as ordinary channel messages when
+/// ARP MIDI Out is on, so anything that wants to forward or record an arpeggio
+/// needs these -- the SysEx reassembler discards them.
+class ChannelMessageParser {
+public:
+    /// Feeds raw bytes; returns any complete channel messages, in order.
+    std::vector<Bytes> feed(std::span<const std::uint8_t> raw);
+    void reset();
+
+private:
+    std::uint8_t status_{0};      ///< running status
+    Bytes partial_;
+    bool inSysEx_{false};
+};
+
+/// Number of data bytes a channel status byte expects.
+[[nodiscard]] constexpr int channelMessageLength(std::uint8_t status) {
+    switch (status & 0xF0) {
+        case 0xC0:            // program change
+        case 0xD0: return 1;  // channel aftertouch
+        default: return 2;    // note off/on, poly AT, CC, pitch bend
+    }
+}
+
 /// Reassembles SysEx from a MIDI byte stream, dropping realtime bytes.
 /// The unit floods the input with Active Sensing (FE), so this is not optional.
 class SysExReassembler {

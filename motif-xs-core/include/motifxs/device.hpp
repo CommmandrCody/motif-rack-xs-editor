@@ -83,6 +83,25 @@ public:
     /// Called for every inbound SysEx message, on the MIDI read thread.
     void setSysExListener(std::function<void(const Bytes&)>);
 
+    /// Called for every inbound channel message, on the MIDI read thread.
+    /// This is where arpeggiator output arrives when ARP MIDI Out is on.
+    void setChannelListener(std::function<void(const Bytes&)>);
+
+    /// Forwards the rack's channel messages to another CoreMIDI destination,
+    /// so an arpeggio playing on the Motif can drive a second instrument.
+    ///
+    /// SysEx and realtime are never forwarded: the editor's own parameter
+    /// traffic must not reach the other device, and clock is the host's job.
+    /// Pass an empty name to stop forwarding.
+    [[nodiscard]] bool setThru(const std::string& destinationName, std::string* error = nullptr);
+    [[nodiscard]] std::string thruName() const;
+
+    /// Rewrites the channel of forwarded messages. -1 keeps the original.
+    void setThruChannel(int channel);
+
+    /// All Notes Off + All Sound Off on the thru destination, all 16 channels.
+    void silenceThru();
+
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

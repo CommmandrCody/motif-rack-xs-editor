@@ -43,6 +43,11 @@ struct Device::Impl {
     std::uint8_t deviceNumber{0};
 
     SysExReassembler reassembler;
+    ChannelMessageParser channels;
+    MIDIEndpointRef thru{};
+    std::string thruName;
+    int thruChannel{-1};              // -1 keeps the source channel
+    std::function<void(const Bytes&)> channelListener;
     std::mutex mutex;
     std::condition_variable cv;
     // Inbound messages carry an arrival sequence number. The rack transmits
@@ -65,6 +70,7 @@ struct Device::Impl {
         const MIDIPacket* p = &list->packet[0];
         std::vector<Bytes> msgs;
         for (UInt32 i = 0; i < list->numPackets; ++i) {
+            forwardChannelMessages({p->data, p->length});
             msgs = reassembler.feed({p->data, p->length});
             if (!msgs.empty()) {
                 std::lock_guard lock(mutex);
@@ -77,6 +83,38 @@ struct Device::Impl {
             p = MIDIPacketNext(p);
         }
     }
+
+    /// Extracts channel messages and, if a thru destination is set, relays
+    /// them. Runs on the CoreMIDI read thread, so it stays allocation-light
+    /// and never blocks on the main mutex for the send itself.
+    void forwardChannelMessages(std::span<const std::uint8_t> raw) {
+        auto msgs = channels.feed(raw);
+        if (msgs.empty()) return;
+
+        MIDIEndpointRef dest{};
+        int chan{-1};
+        std::function<void(const Bytes&)> listener;
+        {
+            std::lock_guard lock(mutex);
+            dest = thru;
+            chan = thruChannel;
+            listener = channelListener;
+        }
+        for (auto& m : msgs) {
+            if (listener) listener(m);
+            if (!dest || m.empty()) continue;
+            Bytes out = m;
+            if (chan >= 0 && out[0] < 0xF0)
+                out[0] = std::uint8_t((out[0] & 0xF0) | (chan & 0x0F));
+            std::byte storage[sizeof(MIDIPacketList) + 64];
+            auto* pl = reinterpret_cast<MIDIPacketList*>(storage);
+            MIDIPacket* pk = MIDIPacketListInit(pl);
+            pk = MIDIPacketListAdd(pl, sizeof(storage), pk, 0, out.size(), out.data());
+            if (pk) MIDISend(outPortRef, dest, pl);
+        }
+    }
+
+    MIDIPortRef outPortRef{};
 
     /// Waits for a message satisfying `pred` that arrived after `after`,
     /// consuming it. Messages older than `after` cannot be a reply to a request
@@ -172,6 +210,7 @@ bool Device::open(const std::string& wanted, std::string* error) {
     impl_->source = src;
     impl_->dest = dst;
     impl_->port = srcName;
+    impl_->outPortRef = impl_->out;
     return true;
 }
 
@@ -249,6 +288,62 @@ void Device::selectVoice(std::uint8_t msb, std::uint8_t lsb, std::uint8_t progra
     send(m);
 }
 
+void Device::setChannelListener(std::function<void(const Bytes&)> fn) {
+    std::lock_guard lock(impl_->mutex);
+    impl_->channelListener = std::move(fn);
+}
+
+bool Device::setThru(const std::string& destinationName, std::string* error) {
+    if (destinationName.empty()) {
+        std::lock_guard lock(impl_->mutex);
+        impl_->thru = 0;
+        impl_->thruName.clear();
+        return true;
+    }
+    for (ItemCount i = 0; i < MIDIGetNumberOfDestinations(); ++i) {
+        MIDIEndpointRef e = MIDIGetDestination(i);
+        if (endpointName(e) == destinationName) {
+            std::lock_guard lock(impl_->mutex);
+            impl_->thru = e;
+            impl_->thruName = destinationName;
+            return true;
+        }
+    }
+    if (error) *error = "destination not found: " + destinationName;
+    return false;
+}
+
+std::string Device::thruName() const {
+    std::lock_guard lock(impl_->mutex);
+    return impl_->thruName;
+}
+
+void Device::setThruChannel(int channel) {
+    std::lock_guard lock(impl_->mutex);
+    impl_->thruChannel = channel;
+}
+
+void Device::silenceThru() {
+    MIDIEndpointRef dest{};
+    {
+        std::lock_guard lock(impl_->mutex);
+        dest = impl_->thru;
+    }
+    if (!dest) return;
+    Bytes cc;
+    for (std::uint8_t ch = 0; ch < 16; ++ch) {
+        const std::uint8_t st = std::uint8_t(0xB0 | ch);
+        cc.insert(cc.end(), {st, 0x78, 0x00});
+        cc.insert(cc.end(), {st, 0x7B, 0x00});
+    }
+    const std::size_t bytes = sizeof(MIDIPacketList) + cc.size() + 128;
+    std::vector<std::byte> storage(bytes);
+    auto* pl = reinterpret_cast<MIDIPacketList*>(storage.data());
+    MIDIPacket* pk = MIDIPacketListInit(pl);
+    pk = MIDIPacketListAdd(pl, bytes, pk, 0, cc.size(), cc.data());
+    if (pk) MIDISend(impl_->out, dest, pl);
+}
+
 void Device::panic() {
     if (!isOpen()) return;
 
@@ -260,6 +355,7 @@ void Device::panic() {
         cc.insert(cc.end(), {status, 0x7B, 0x00});   // All Notes Off
     }
     send(cc);
+    silenceThru();
 
     // Then stop the arpeggiators, or a held arp simply retriggers.
     // ARP Switch 38 pp 00 -> off(0); ARP Hold 38 pp 07 -> off(1), since the

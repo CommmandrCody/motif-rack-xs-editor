@@ -85,6 +85,38 @@ MainComponent::MainComponent() {
         dirty_ = true;
     };
 
+    // Arm the rack's per-part ARP MIDI Out (38 pp 01). Without this the
+    // arpeggio is audible but transmits nothing, so routing looks broken.
+    arpMidiOut_.setClickingTogglesState(true);
+    arpMidiOut_.setColour(juce::TextButton::buttonOnColourId, theme::good);
+    arpMidiOut_.setColour(juce::TextButton::textColourOnId, juce::Colours::black);
+    arpMidiOut_.setTooltip("Transmit this part's arpeggio as MIDI");
+    arpMidiOut_.onClick = [this] {
+        if (const auto* p = findParameter(Scope::MultiPart, 0x38, 0x00, 0x01))
+            worker_.setParameter(*p, part_, arpMidiOut_.getToggleState() ? 1 : 0);
+    };
+    addAndMakeVisible(arpMidiOut_);
+
+    thruLabel_.setText("THRU", juce::dontSendNotification);
+    thruLabel_.setFont(juce::FontOptions(11.0f));
+    thruLabel_.setColour(juce::Label::textColourId, theme::dim);
+    thruLabel_.setJustificationType(juce::Justification::centredRight);
+    addAndMakeVisible(thruLabel_);
+
+    refreshThruDestinations();
+    thruBox_.onChange = [this] {
+        const std::string dest =
+            thruBox_.getSelectedId() <= 1 ? std::string() : thruBox_.getText().toStdString();
+        worker_.post([dest](Device& d) {
+            d.silenceThru();             // release notes held on the old target
+            d.setThru(dest);
+        });
+        setStatus(dest.empty() ? "thru off"
+                               : "forwarding the rack's notes to " + juce::String(dest),
+                  dest.empty() ? theme::dim : theme::good);
+    };
+    addAndMakeVisible(thruBox_);
+
     arpNameLabel_.setFont(juce::FontOptions(12.0f));
     arpNameLabel_.setColour(juce::Label::textColourId, theme::dim);
     addAndMakeVisible(arpNameLabel_);
@@ -156,6 +188,19 @@ MainComponent::MainComponent() {
 MainComponent::~MainComponent() {
     stopTimer();
     setLookAndFeel(nullptr);
+}
+
+/// Everything except the rack's own ports -- forwarding the Motif to itself
+/// would be a feedback loop.
+void MainComponent::refreshThruDestinations() {
+    thruBox_.clear(juce::dontSendNotification);
+    thruBox_.addItem("no thru", 1);
+    int id = 2;
+    for (const auto& e : listDestinations()) {
+        if (e.name.find("MOTIF") != std::string::npos) continue;
+        thruBox_.addItem(e.name, id++);
+    }
+    thruBox_.setSelectedId(1, juce::dontSendNotification);
 }
 
 void MainComponent::refreshPorts() {
@@ -266,6 +311,14 @@ void MainComponent::pullPartState() {
                 updateArpWarning();
             });
         });
+    if (const auto* out = findParameter(Scope::MultiPart, 0x38, 0x00, 0x01))
+        worker_.readParameter(*out, part, [this](std::optional<std::int32_t> v) {
+            if (!v) return;
+            const bool on = *v != 0;
+            juce::MessageManager::callAsync([this, on] {
+                arpMidiOut_.setToggleState(on, juce::dontSendNotification);
+            });
+        });
     if (const auto* hold = findParameter(Scope::MultiPart, 0x38, 0x00, 0x07))
         worker_.readParameter(*hold, part, [this](std::optional<std::int32_t> v) {
             if (!v) return;
@@ -337,7 +390,7 @@ void MainComponent::paint(juce::Graphics& g) {
 
     // selected part's voice name, the thing the eye should land on
     auto header = r.removeFromTop(34).reduced(12, 2);
-    header.removeFromRight(410);   // room for the arp controls
+    header.removeFromRight(470);   // room for the arp controls
     g.setColour(theme::dim);
     g.setFont(juce::FontOptions(11.0f));
     g.drawText("PART " + juce::String(part_ + 1), header.removeFromLeft(60),
@@ -364,7 +417,11 @@ void MainComponent::resized() {
     top.removeFromLeft(10);
     panicButton_.setBounds(top.removeFromRight(80));
     top.removeFromRight(8);
-    deviceLabel_.setBounds(top.removeFromRight(190));
+    deviceLabel_.setBounds(top.removeFromRight(170));
+    top.removeFromRight(8);
+    thruBox_.setBounds(top.removeFromRight(190));
+    thruLabel_.setBounds(top.removeFromRight(38));
+    top.removeFromRight(8);
     statusLabel_.setBounds(top);
 
     auto strip = r.removeFromTop(46).reduced(14, 8);
@@ -374,7 +431,9 @@ void MainComponent::resized() {
 
     // voice-name header row: painted text on the left, arp controls on the right
     auto nameRow = r.removeFromTop(34).reduced(12, 4);
-    arpHold_.setBounds(nameRow.removeFromRight(58).reduced(0, 1));
+    arpMidiOut_.setBounds(nameRow.removeFromRight(48).reduced(0, 1));
+    nameRow.removeFromRight(4);
+    arpHold_.setBounds(nameRow.removeFromRight(56).reduced(0, 1));
     nameRow.removeFromRight(4);
     arpSwitch_.setBounds(nameRow.removeFromRight(52).reduced(0, 1));
     nameRow.removeFromRight(4);

@@ -1,5 +1,6 @@
 // motifxs -- command line proof of concept (milestone 1).
 #include <charconv>
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
@@ -37,6 +38,7 @@ int usage() {
         "  motifxs arp <slot 1-5> <number>       assign an arpeggio type\n"
         "  motifxs dump-state                    read the live edit buffer\n"
         "  motifxs panic                         all notes off, arpeggiators off\n"
+        "  motifxs thru <dest> [secs] [ch]       forward the rack's notes to another device\n"
         "\n"
         "  --port <name>   use a specific MIDI port (default: MOTIF ... Port1)\n");
     return 1;
@@ -546,6 +548,36 @@ int main(int argc, char** argv) {
     if (cmd == "params") return cmdParams(n, rest);
     if (cmd == "arp-list") return cmdArpList(n, rest);
     if (cmd == "arp") return cmdArp(n, rest);
+    if (cmd == "thru") {
+        if (n < 1) return usage();
+        Device d;
+        if (!connectAndIdentify(d)) return 1;
+        std::string err;
+        if (!d.setThru(rest[0], &err)) {
+            std::fprintf(stderr, "error: %s\n", err.c_str());
+            std::fprintf(stderr, "hint: run 'motifxs list-midi' for destination names\n");
+            return 1;
+        }
+        if (n > 2) d.setThruChannel(int(toLong(rest[2]).value_or(-1)) - 1);
+        const double secs = n > 1 ? double(toLong(rest[1]).value_or(10)) : 10.0;
+
+        std::atomic<int> notes{0}, ccs{0};
+        d.setChannelListener([&](const Bytes& m) {
+            if (m.empty()) return;
+            const std::uint8_t kind = m[0] & 0xF0;
+            if (kind == 0x90 && m.size() > 2 && m[2] > 0) ++notes;
+            else if (kind == 0xB0) ++ccs;
+        });
+        std::printf("forwarding %s -> %s for %.0fs\n", d.portName().c_str(), rest[0], secs);
+        std::puts("(play the rack; SysEx and clock are never forwarded)");
+        const auto until = std::chrono::steady_clock::now() +
+                           std::chrono::milliseconds(long(secs * 1000));
+        while (std::chrono::steady_clock::now() < until)
+            std::this_thread::sleep_for(std::chrono::milliseconds{50});
+        d.silenceThru();
+        std::printf("forwarded %d note-ons and %d control changes\n", notes.load(), ccs.load());
+        return 0;
+    }
     if (cmd == "panic") {
         Device d;
         if (!connect(d)) return 1;

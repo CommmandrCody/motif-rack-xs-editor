@@ -90,6 +90,52 @@ std::optional<IdentityReply> parseIdentityReply(std::span<const std::uint8_t> m)
     return r;
 }
 
+void ChannelMessageParser::reset() {
+    status_ = 0;
+    partial_.clear();
+    inSysEx_ = false;
+}
+
+std::vector<Bytes> ChannelMessageParser::feed(std::span<const std::uint8_t> raw) {
+    std::vector<Bytes> out;
+    for (std::uint8_t b : raw) {
+        if (b >= 0xF8) continue;             // realtime, may interleave anywhere
+
+        if (b == kSysExStart) {
+            inSysEx_ = true;
+            partial_.clear();
+            status_ = 0;                     // SysEx cancels running status
+            continue;
+        }
+        if (b == kSysExEnd) {
+            inSysEx_ = false;
+            continue;
+        }
+        if (inSysEx_) continue;
+
+        if (b >= 0x80) {
+            if (b < 0xF0) {                  // channel status
+                status_ = b;
+                partial_.clear();
+            } else {                         // system common cancels running status
+                status_ = 0;
+                partial_.clear();
+            }
+            continue;
+        }
+
+        if (status_ == 0) continue;          // data with no status: nothing to do
+        partial_.push_back(b);
+        if (int(partial_.size()) == channelMessageLength(status_)) {
+            Bytes msg{status_};
+            msg.insert(msg.end(), partial_.begin(), partial_.end());
+            out.push_back(std::move(msg));
+            partial_.clear();                // running status stays armed
+        }
+    }
+    return out;
+}
+
 std::vector<Bytes> SysExReassembler::feed(std::span<const std::uint8_t> raw) {
     std::vector<Bytes> done;
     for (std::uint8_t b : raw) {
