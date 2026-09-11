@@ -58,7 +58,10 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/JUCE/CMakeLists.txt")
         BUNDLE_ID "com.motifxs.app"
         ICON_BIG "${MOTIFXS_ICON}"
         ICON_SMALL "${MOTIFXS_ICON}"
-        MICROPHONE_PERMISSION_ENABLED FALSE)
+        # The scope reads an audio input, which macOS gates behind the
+        # microphone permission even for a line input on an interface.
+        MICROPHONE_PERMISSION_ENABLED TRUE
+        MICROPHONE_PERMISSION_TEXT "Motif Rack XS shows the rack's audio on its SCOPE page.")
 
     target_sources(motif-xs-app PRIVATE
         motif-xs-app/Main.cpp
@@ -74,8 +77,11 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/JUCE/CMakeLists.txt")
 
     target_link_libraries(motif-xs-app PRIVATE
         motif-xs-core
+        juce::juce_audio_devices
+        juce::juce_audio_utils
         juce::juce_gui_basics
         juce::juce_gui_extra
+        juce::juce_dsp
         juce::juce_data_structures
         PUBLIC
         juce::juce_recommended_config_flags
@@ -116,6 +122,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/JUCE/CMakeLists.txt")
         motif-xs-core
         juce::juce_audio_utils
         juce::juce_gui_extra
+        juce::juce_dsp
         PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags)

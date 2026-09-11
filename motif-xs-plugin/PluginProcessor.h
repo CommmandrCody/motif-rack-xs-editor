@@ -6,6 +6,8 @@
 #include "motifxs/state.hpp"
 #include "motifxs/worker.hpp"
 
+#include "AudioScope.h"
+
 /// The rack is the sound engine; this plugin is a controller that happens to
 /// live in a DAW track.
 ///
@@ -16,12 +18,14 @@
 /// essentially everything this device needs is SysEx, routing control traffic
 /// through the VST3 event path would depend on the least reliable part of the
 /// API. See docs/vst-architecture.md.
-class MotifXsProcessor : public juce::AudioProcessor, private juce::Timer {
+class MotifXsProcessor : public juce::AudioProcessor,
+                         private juce::Timer,
+                         public AudioTap {
 public:
     MotifXsProcessor();
     ~MotifXsProcessor() override;
 
-    void prepareToPlay(double, int) override {}
+    void prepareToPlay(double sampleRate, int) override { sampleRate_.store(sampleRate); }
     void releaseResources() override {}
     bool isBusesLayoutSupported(const BusesLayout&) const override { return true; }
 
@@ -54,6 +58,10 @@ public:
     void setStateInformation(const void*, int) override;
 
     motifxs::DeviceWorker& worker() { return *worker_; }
+
+    /// AudioTap: recent mono samples for the scope.
+    int readRecent(float* dest, int count) override;
+    double tapSampleRate() const override { return sampleRate_.load(); }
     juce::AudioProcessorValueTreeState& apvts() { return apvts_; }
 
     /// True while the rack's arpeggiator is being relayed to the host.
@@ -110,6 +118,14 @@ private:
     /// host asks -- which means capturing ahead of time, not on demand.
     void maybeAutoCapture();
     std::atomic<bool> transportPlaying_{false};
+
+    /// A ring of recent mono samples, written on the audio thread and read by
+    /// the editor. Approximate by design: the scope is for looking at, so a
+    /// torn read costs a slightly ragged frame and nothing else.
+    static constexpr int kScopeSize = 1 << 13;
+    std::array<float, kScopeSize> scopeRing_{};
+    std::atomic<int> scopeWrite_{0};
+    std::atomic<double> sampleRate_{48000.0};
     std::atomic<bool> capturing_{false};
     std::uint64_t lastSeenChange_{0};
     std::uint64_t capturedAtChange_{0};

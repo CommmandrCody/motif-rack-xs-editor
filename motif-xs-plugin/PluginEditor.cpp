@@ -1,7 +1,7 @@
 #include "PluginEditor.h"
 
 MotifXsEditor::MotifXsEditor(MotifXsProcessor& p)
-    : AudioProcessorEditor(&p), processor_(p), ui_(p.worker()) {
+    : AudioProcessorEditor(&p), processor_(p), ui_(p.worker(), &p) {
     setLookAndFeel(&look_);
     addAndMakeVisible(ui_);
 

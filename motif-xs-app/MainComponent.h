@@ -13,6 +13,7 @@
 
 #include "Browsers.h"
 #include "DrumEditor.h"
+#include "AudioScope.h"
 #include "ElementEditor.h"
 #include "Theme.h"
 
@@ -82,7 +83,9 @@ public:
     /// The connection is owned by the host (the standalone app, or the plugin
     /// processor), not by the UI. A plugin editor is created and destroyed
     /// every time the user opens the window; the connection must outlive that.
-    explicit MainComponent(motifxs::DeviceWorker&);
+    /// `tap` is optional: the plugin passes whatever audio reaches its track,
+    /// the standalone app has none.
+    explicit MainComponent(motifxs::DeviceWorker&, AudioTap* tap = nullptr);
     ~MainComponent() override;
 
     /// Selects the part the UI is editing. In the plugin this is bound to the
@@ -131,6 +134,7 @@ private:
     ArpBrowser arps_;
     DrumEditor drums_;
     ElementEditor elements_;
+    AudioScope scope_;
 
     // Voice and Arpeggio each get the full width instead of sharing it. The
     // common case is picking a voice; the arp browser was taking half the

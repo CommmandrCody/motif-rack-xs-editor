@@ -105,6 +105,10 @@ Auto-connects to MOTIF-RACK XS Port1 and reads the rack's live state.
   MIDI, so the phrase can be recorded without an IAC bus
 * **PANIC** -- all notes off plus ARP switch/hold cleared on all 16 parts,
   and All Notes Off to the thru target too
+* **SCOPE** -- a waveform and log-spaced spectrum of the rack's audio. In the
+  plugin it analyses whatever reaches the track; in the standalone app pick the
+  interface input the rack is plugged into. macOS will ask for microphone
+  permission, which it requires even for a line input
 
 ## Use
 

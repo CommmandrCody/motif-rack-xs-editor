@@ -117,11 +117,24 @@ void MotifXsProcessor::setMidiOutEnabled(bool on) {
 MotifXsProcessor::~MotifXsProcessor() { stopTimer(); }
 
 void MotifXsProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi) {
-    // No audio, no host MIDI. Clear rather than pass through: a controller
-    // that leaks its input to the track output surprises people.
+    // Audio passes through untouched. This plugin generates none, but it may
+    // well sit on the track the rack's audio returns on -- clearing the buffer
+    // there would silently mute the instrument.
     juce::ScopedNoDenormals noDenormals;
-    buffer.clear();
     midi.clear();
+
+    // Tap a mono sum for the scope. Cheap, and never allocates or locks.
+    if (const int numSamples = buffer.getNumSamples(); numSamples > 0) {
+        const int channels = juce::jmax(1, buffer.getNumChannels());
+        int w = scopeWrite_.load(std::memory_order_relaxed);
+        for (int i = 0; i < numSamples; ++i) {
+            float sum = 0.0f;
+            for (int ch = 0; ch < channels; ++ch) sum += buffer.getReadPointer(ch)[i];
+            scopeRing_[std::size_t(w)] = sum / float(channels);
+            w = (w + 1) & (kScopeSize - 1);
+        }
+        scopeWrite_.store(w, std::memory_order_release);
+    }
 
     // Relay whatever the rack's arpeggiator sent since the last block. These
     // arrive asynchronously, so they are stamped at the start of the block --
@@ -201,6 +214,17 @@ void MotifXsProcessor::pushAutomationToDevice() {
         if (auto* raw = apvts_.getRawParameterValue(kMacros[std::size_t(i)].id))
             worker_->setParameter(*p, juce::jlimit(0, 15, part), int(raw->load()));
     }
+}
+
+int MotifXsProcessor::readRecent(float* dest, int count) {
+    if (count <= 0) return 0;
+    const int n = juce::jmin(count, kScopeSize);
+    const int w = scopeWrite_.load(std::memory_order_acquire);
+    for (int i = 0; i < n; ++i)
+        dest[i] = scopeRing_[std::size_t((w - n + i + kScopeSize) & (kScopeSize - 1))];
+    // pad the front if fewer were asked for than the caller's buffer
+    for (int i = n; i < count; ++i) dest[i] = 0.0f;
+    return n;
 }
 
 juce::AudioProcessorEditor* MotifXsProcessor::createEditor() {

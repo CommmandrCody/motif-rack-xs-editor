@@ -33,7 +33,8 @@ juce::String ParamKnob::format(int raw) const {
     return juce::String(raw);
 }
 
-MainComponent::MainComponent(DeviceWorker& worker) : worker_(worker) {
+MainComponent::MainComponent(DeviceWorker& worker, AudioTap* tap)
+    : worker_(worker), scope_(tap) {
     setLookAndFeel(&look_);
 
     juce::PropertiesFile::Options opts;
@@ -180,6 +181,7 @@ MainComponent::MainComponent(DeviceWorker& worker) : worker_(worker) {
     tabs_.addTab("ARPEGGIO", theme::bg, &arps_, false);
     tabs_.addTab("ELEMENTS", theme::bg, &elements_, false);
     tabs_.addTab("DRUM", theme::bg, &drums_, false);
+    tabs_.addTab("SCOPE", theme::bg, &scope_, false);
 
     elements_.onElementSelected = [this](int ee) { pullElement(ee); };
     elements_.onEdit = [this](int ee, const Parameter& p, int raw) {
