@@ -5,6 +5,22 @@ using namespace motifxs;
 
 namespace {
 
+/// Writes what the plugin handed the host and what the host handed back.
+///
+/// A restore that goes wrong leaves no evidence otherwise: the rack reports
+/// "illegal bulk data" on its own display and the blocks are gone. Having both
+/// sides on disk makes it possible to tell a bad capture from a bad restore,
+/// and lets a project's rack state be recovered by hand if the plugin is at
+/// fault.
+void writeDiagnostic(const juce::String& name, const juce::String& contents) {
+    auto dir = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+                   .getChildFile("Logs")
+                   .getChildFile("MotifRackXS");
+    if (!dir.exists() && !dir.createDirectory().wasOk()) return;
+    dir.getChildFile(name).replaceWithText(contents);
+}
+
+
 /// The automatable set is deliberately small. The rack exposes 918 usable
 /// parameters; publishing all of them makes a host's automation list unusable
 /// and Live's device view unreadable. These are the PERFORM macros -- the same
@@ -173,7 +189,8 @@ bool MotifXsProcessor::stateIsStale() const {
 /// when nothing changed would be pointless traffic -- so the worker counts
 /// changes *to* the rack, and reads never bump it.
 void MotifXsProcessor::maybeAutoCapture() {
-    if (capturing_.load() || transportPlaying_.load() || !worker_->isOpen()) return;
+    if (capturing_.load() || restoring_.load() || transportPlaying_.load() || !worker_->isOpen())
+        return;
 
     const auto changes = worker_->changeCount();
     const auto now = juce::Time::currentTimeMillis();
@@ -267,6 +284,11 @@ void MotifXsProcessor::getStateInformation(juce::MemoryBlock& dest) {
         tree.setProperty("port", portName_, nullptr);
     }
     if (auto xml = tree.createXml()) copyXmlToBinary(*xml, dest);
+
+    {
+        const juce::ScopedLock lock(stateLock_);
+        if (!captured_.empty()) writeDiagnostic("last-saved.motifxs", toText(captured_));
+    }
 }
 
 void MotifXsProcessor::setStateInformation(const void* data, int size) {
@@ -276,6 +298,8 @@ void MotifXsProcessor::setStateInformation(const void* data, int size) {
     if (!tree.isValid()) return;
 
     const auto multi = tree.getProperty("multi").toString();
+    writeDiagnostic("last-restored.motifxs", multi.isEmpty() ? "(the project carried no rack state)"
+                                                             : multi);
     tree.removeProperty("multi", nullptr);
     tree.removeProperty("port", nullptr);
     apvts_.replaceState(tree);
@@ -288,6 +312,7 @@ void MotifXsProcessor::setStateInformation(const void* data, int size) {
         const juce::ScopedLock lock(stateLock_);
         captured_ = *st;
     }
+    restoring_.store(true);
     {
         const juce::ScopedLock lock(stateLock_);
         restoreStatus_ = "restoring the rack...";
@@ -301,14 +326,17 @@ void MotifXsProcessor::setStateInformation(const void* data, int size) {
         if (!d.isOpen()) {
             // Silently doing nothing here is how a project could open with the
             // rack on entirely the wrong sounds and no indication why.
+            restoring_.store(false);
             const juce::ScopedLock lock(stateLock_);
             restoreStatus_ = "no rack found - the project's sounds were not restored";
             return;
         }
         const bool ok = restoreState(d, captured);
+        restoring_.store(false);
         const juce::ScopedLock lock(stateLock_);
         restoreStatus_ = ok ? juce::String("restored from the project")
                             : juce::String("restore failed");
+        // The restore itself moved the rack; that is not an edit to capture.
         capturedAtChange_ = worker_->changeCount();
     });
 }

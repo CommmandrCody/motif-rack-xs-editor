@@ -145,6 +145,9 @@ private:
     std::atomic<int> inputChannels_{0};
     std::atomic<bool> everSawSignal_{false};
     std::atomic<bool> capturing_{false};
+    /// Set while a project-load restore is in flight. Capturing during one
+    /// would record a half-restored rack and save that wreckage next time.
+    std::atomic<bool> restoring_{false};
     std::uint64_t lastSeenChange_{0};
     std::uint64_t capturedAtChange_{0};
     juce::int64 lastChangeMs_{0};
