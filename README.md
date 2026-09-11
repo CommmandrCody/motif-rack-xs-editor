@@ -106,9 +106,11 @@ Auto-connects to MOTIF-RACK XS Port1 and reads the rack's live state.
 * **PANIC** -- all notes off plus ARP switch/hold cleared on all 16 parts,
   and All Notes Off to the thru target too
 * **SCOPE** -- a waveform and log-spaced spectrum of the rack's audio. In the
-  plugin it analyses whatever reaches the track; in the standalone app pick the
-  interface input the rack is plugged into. macOS will ask for microphone
-  permission, which it requires even for a line input
+  plugin it analyses whatever reaches the track. In the standalone app, pick the
+  interface *and the stereo pair* the rack is on -- a rack on an 18-input desk
+  is rarely on channels 1/2. macOS asks for microphone permission, which it
+  requires even for a line input. When there is nothing to draw the page says
+  why rather than showing a flat line
 
 ## Use
 

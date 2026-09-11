@@ -33,6 +33,13 @@ struct AudioTap {
     virtual juce::StringArray inputDevices() { return {}; }
     virtual juce::String currentInputDevice() { return {}; }
     virtual void setInputDevice(const juce::String&) {}
+
+    /// Which stereo pair on the interface to listen to. A rack on an 18-input
+    /// desk is rarely on channels 1/2, and picking the device alone leaves you
+    /// staring at whatever happens to be on the first pair.
+    virtual juce::StringArray inputPairs() { return {}; }
+    virtual int currentInputPair() { return 0; }
+    virtual void setInputPair(int) {}
 };
 
 /// A waveform and a spectrum of whatever the tap is hearing.
@@ -56,6 +63,20 @@ public:
                 };
                 addAndMakeVisible(input_);
                 hasSelector_ = true;
+
+                pair_.onChange = [this] {
+                    if (tap_ != nullptr) tap_->setInputPair(pair_.getSelectedId() - 1);
+                };
+                addAndMakeVisible(pair_);
+                refreshPairs();
+
+                // The pair list only exists once a device is open, so rebuild
+                // it whenever the device changes.
+                input_.onChange = [this] {
+                    if (tap_ == nullptr) return;
+                    tap_->setInputDevice(input_.getText());
+                    refreshPairs();
+                };
             }
         }
         window_.resize(size_t(kFftSize));
@@ -95,7 +116,9 @@ public:
     void resized() override {
         if (!hasSelector_) return;
         auto top = getLocalBounds().reduced(10).removeFromTop(24);
-        input_.setBounds(top.removeFromRight(280));
+        pair_.setBounds(top.removeFromRight(190));
+        top.removeFromRight(8);
+        input_.setBounds(top.removeFromRight(260));
         inputLabel_.setBounds(top.removeFromRight(50));
     }
 
@@ -198,7 +221,15 @@ private:
     }
 
     AudioTap* tap_{};
-    juce::ComboBox input_;
+    void refreshPairs() {
+        if (tap_ == nullptr) return;
+        pair_.clear(juce::dontSendNotification);
+        int id = 1;
+        for (const auto& p : tap_->inputPairs()) pair_.addItem(p, id++);
+        pair_.setSelectedId(tap_->currentInputPair() + 1, juce::dontSendNotification);
+    }
+
+    juce::ComboBox input_, pair_;
     juce::Label inputLabel_;
     bool hasSelector_{false};
     juce::dsp::FFT fft_{kFftOrder};

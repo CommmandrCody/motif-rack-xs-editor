@@ -15,8 +15,8 @@ class StandaloneAudioTap : public AudioTap, private juce::AudioIODeviceCallback 
 public:
     StandaloneAudioTap() {
         ring_.fill(0.0f);
-        // two in, none out
         manager_.initialiseWithDefaultDevices(2, 0);
+        enableAllInputs();
         manager_.addAudioCallback(this);
     }
     ~StandaloneAudioTap() override { manager_.removeAudioCallback(this); }
@@ -38,8 +38,8 @@ public:
             return "No audio input is open.\nChoose the interface input the rack "
                    "is plugged into, and allow microphone access when macOS asks.";
         if (!everSaw_.load())
-            return "Input open, but nothing has come through it yet.\n"
-                   "Check this is the input the rack is plugged into.";
+            return "Input open, but nothing on this pair yet.\n"
+                   "Choose the pair the rack is plugged into.";
         return {};
     }
 
@@ -61,9 +61,40 @@ public:
         setup.inputDeviceName = name;
         setup.useDefaultInputChannels = true;
         manager_.setAudioDeviceSetup(setup, true);
+        enableAllInputs();
+        pairBase_.store(0);
+        everSaw_.store(false);
+    }
+
+    juce::StringArray inputPairs() override {
+        juce::StringArray pairs;
+        if (auto* d = manager_.getCurrentAudioDevice()) {
+            const auto names = d->getInputChannelNames();
+            for (int i = 0; i + 1 < names.size(); i += 2)
+                pairs.add(juce::String(i + 1) + "/" + juce::String(i + 2) +
+                          "   " + names[i].trim());
+        }
+        return pairs;
+    }
+    int currentInputPair() override { return pairBase_.load() / 2; }
+    void setInputPair(int index) override {
+        pairBase_.store(juce::jmax(0, index) * 2);
+        everSaw_.store(false);
     }
 
 private:
+    /// Open every input the interface has, so any pair can be chosen in
+    /// software without reconfiguring the device each time.
+    void enableAllInputs() {
+        auto setup = manager_.getAudioDeviceSetup();
+        if (auto* d = manager_.getCurrentAudioDevice()) {
+            setup.useDefaultInputChannels = false;
+            setup.inputChannels.clear();
+            setup.inputChannels.setRange(0, d->getInputChannelNames().size(), true);
+            manager_.setAudioDeviceSetup(setup, true);
+        }
+    }
+
     void audioDeviceAboutToStart(juce::AudioIODevice* d) override {
         rate_.store(d != nullptr ? d->getCurrentSampleRate() : 48000.0);
         active_.store(true);
@@ -78,11 +109,15 @@ private:
             if (out[ch] != nullptr) juce::FloatVectorOperations::clear(out[ch], numSamples);
         if (numIn <= 0 || in == nullptr) return;
 
+        // Only the selected pair, not a sum of every input on the desk.
+        const int base = juce::jlimit(0, juce::jmax(0, numIn - 1), pairBase_.load());
+        const int last = juce::jmin(numIn - 1, base + 1);
+
         int w = write_.load(std::memory_order_relaxed);
         for (int i = 0; i < numSamples; ++i) {
             float sum = 0.0f;
             int used = 0;
-            for (int ch = 0; ch < numIn; ++ch)
+            for (int ch = base; ch <= last; ++ch)
                 if (in[ch] != nullptr) { sum += in[ch][i]; ++used; }
             const float v = used ? sum / float(used) : 0.0f;
             if (std::abs(v) > 1.0e-5f) everSaw_.store(true);
@@ -99,6 +134,7 @@ private:
     std::atomic<double> rate_{48000.0};
     std::atomic<bool> active_{false};
     std::atomic<bool> everSaw_{false};
+    std::atomic<int> pairBase_{0};
 };
 
 class MotifXsApplication : public juce::JUCEApplication {
