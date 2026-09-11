@@ -19,6 +19,16 @@ constexpr KnobSpec kKnobs[] = {
 };
 
 const Parameter* param(const char* id) { return findParameterById(id); }
+
+// Row heights. paint() and resized() carve up the same rectangle, so these live
+// in one place rather than as matching magic numbers in two functions.
+// Sized for a plugin window rather than a desktop app: a Live device sits in a
+// chain next to others and cannot afford an app's worth of padding.
+constexpr int kHeaderH = 34;
+constexpr int kPartStripH = 32;
+constexpr int kNameRowH = 28;
+constexpr int kKnobRowH = 84;
+constexpr int kTabBarH = 24;
 }  // namespace
 
 /// Formats a raw device value the way the rack's own display would.
@@ -176,7 +186,7 @@ MainComponent::MainComponent(DeviceWorker& worker, AudioTap* tap)
     };
 
     tabs_.setOutline(0);
-    tabs_.setTabBarDepth(28);
+    tabs_.setTabBarDepth(kTabBarH);
     tabs_.addTab("VOICE", theme::bg, &voices_, false);
     tabs_.addTab("ARPEGGIO", theme::bg, &arps_, false);
     tabs_.addTab("ELEMENTS", theme::bg, &elements_, false);
@@ -253,7 +263,7 @@ MainComponent::MainComponent(DeviceWorker& worker, AudioTap* tap)
 
     selectPart(0);
     loadSettings();
-    setSize(1240, 780);
+    setSize(1060, 660);
     startTimerHz(20);
 
     // One rack, one port -- make the app useful on launch instead of making
@@ -826,28 +836,28 @@ void MainComponent::paint(juce::Graphics& g) {
     g.fillAll(theme::bg);
 
     auto r = getLocalBounds();
-    r.removeFromTop(44);
+    r.removeFromTop(kHeaderH);
 
     // part strip backdrop
-    auto strip = r.removeFromTop(46).reduced(10, 4);
+    auto strip = r.removeFromTop(kPartStripH).reduced(8, 2);
     g.setColour(theme::panel);
     g.fillRoundedRectangle(strip.toFloat(), 5.0f);
 
     // selected part's voice name, the thing the eye should land on
-    auto header = r.removeFromTop(34).reduced(12, 2);
-    header.removeFromRight(470);   // room for the arp controls
+    auto header = r.removeFromTop(kNameRowH).reduced(10, 1);
+    header.removeFromRight(440);   // room for the arp controls
     g.setColour(theme::dim);
     g.setFont(juce::FontOptions(11.0f));
     g.drawText("PART " + juce::String(part_ + 1), header.removeFromLeft(60),
                juce::Justification::centredLeft);
     g.setColour(theme::text);
-    g.setFont(juce::FontOptions(19.0f, juce::Font::bold));
+    g.setFont(juce::FontOptions(16.0f, juce::Font::bold));
     g.drawText(partVoiceNames_[size_t(part_)].isEmpty() ? juce::String("--")
                                                         : partVoiceNames_[size_t(part_)],
                header, juce::Justification::centredLeft, true);
 
     // knob row backdrop
-    auto knobRow = r.removeFromBottom(112).reduced(10, 4);
+    auto knobRow = r.removeFromBottom(kKnobRowH).reduced(8, 2);
     g.setColour(theme::panel);
     g.fillRoundedRectangle(knobRow.toFloat(), 5.0f);
 }
@@ -855,31 +865,31 @@ void MainComponent::paint(juce::Graphics& g) {
 void MainComponent::resized() {
     auto r = getLocalBounds();
 
-    auto top = r.removeFromTop(44).reduced(10, 8);
-    portBox_.setBounds(top.removeFromLeft(280));
-    top.removeFromLeft(6);
-    connectButton_.setBounds(top.removeFromLeft(90));
-    top.removeFromLeft(10);
-    panicButton_.setBounds(top.removeFromRight(72));
-    top.removeFromRight(6);
-    loadButton_.setBounds(top.removeFromRight(58));
+    auto top = r.removeFromTop(kHeaderH).reduced(8, 5);
+    portBox_.setBounds(top.removeFromLeft(220));
+    top.removeFromLeft(4);
+    connectButton_.setBounds(top.removeFromLeft(70));
+    top.removeFromLeft(8);
+    panicButton_.setBounds(top.removeFromRight(62));
     top.removeFromRight(4);
-    saveButton_.setBounds(top.removeFromRight(58));
-    top.removeFromRight(8);
-    deviceLabel_.setBounds(top.removeFromRight(170));
-    top.removeFromRight(8);
-    thruBox_.setBounds(top.removeFromRight(190));
-    thruLabel_.setBounds(top.removeFromRight(38));
-    top.removeFromRight(8);
+    loadButton_.setBounds(top.removeFromRight(50));
+    top.removeFromRight(3);
+    saveButton_.setBounds(top.removeFromRight(50));
+    top.removeFromRight(6);
+    deviceLabel_.setBounds(top.removeFromRight(140));
+    top.removeFromRight(6);
+    thruBox_.setBounds(top.removeFromRight(160));
+    thruLabel_.setBounds(top.removeFromRight(34));
+    top.removeFromRight(6);
     statusLabel_.setBounds(top);
 
-    auto strip = r.removeFromTop(46).reduced(14, 8);
+    auto strip = r.removeFromTop(kPartStripH).reduced(10, 4);
     const int bw = strip.getWidth() / 16;
     for (int i = 0; i < 16; ++i)
         partButtons_[size_t(i)]->setBounds(strip.removeFromLeft(bw).reduced(2));
 
     // voice-name header row: painted text on the left, arp controls on the right
-    auto nameRow = r.removeFromTop(34).reduced(12, 4);
+    auto nameRow = r.removeFromTop(kNameRowH).reduced(10, 2);
     arpMidiOut_.setBounds(nameRow.removeFromRight(48).reduced(0, 1));
     nameRow.removeFromRight(4);
     arpHold_.setBounds(nameRow.removeFromRight(56).reduced(0, 1));
@@ -890,11 +900,11 @@ void MainComponent::resized() {
     nameRow.removeFromRight(8);
     arpNameLabel_.setBounds(nameRow.removeFromRight(210));
 
-    auto knobRow = r.removeFromBottom(112).reduced(14, 8);
+    auto knobRow = r.removeFromBottom(kKnobRowH).reduced(10, 3);
     const int kw = knobRow.getWidth() / int(knobs_.size());
-    for (auto& k : knobs_) k->setBounds(knobRow.removeFromLeft(kw).reduced(4));
+    for (auto& k : knobs_) k->setBounds(knobRow.removeFromLeft(kw).reduced(2));
 
-    auto tabRow = r.removeFromTop(28);
+    auto tabRow = r.removeFromTop(kTabBarH);
     auditionButton_.setBounds(tabRow.removeFromRight(96).reduced(10, 2));
     loadVoiceButton_.setBounds(tabRow.removeFromRight(92).reduced(2, 2));
     saveVoiceButton_.setBounds(tabRow.removeFromRight(92).reduced(2, 2));

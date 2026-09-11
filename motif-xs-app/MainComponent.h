@@ -27,12 +27,12 @@ public:
 
         name_.setText(label, juce::dontSendNotification);
         name_.setJustificationType(juce::Justification::centred);
-        name_.setFont(juce::FontOptions(11.0f));
+        name_.setFont(juce::FontOptions(10.0f));
         name_.setColour(juce::Label::textColourId, theme::dim);
         addAndMakeVisible(name_);
 
         slider_.setSliderStyle(juce::Slider::RotaryVerticalDrag);
-        slider_.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 56, 16);
+        slider_.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 50, 14);
         slider_.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
         slider_.setColour(juce::Slider::textBoxTextColourId, theme::text);
         if (param_) {
@@ -51,7 +51,7 @@ public:
 
     void resized() override {
         auto r = getLocalBounds();
-        name_.setBounds(r.removeFromTop(14));
+        name_.setBounds(r.removeFromTop(12));
         slider_.setBounds(r);
     }
 

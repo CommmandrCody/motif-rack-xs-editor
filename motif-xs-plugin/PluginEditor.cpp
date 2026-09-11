@@ -72,8 +72,10 @@ MotifXsEditor::MotifXsEditor(MotifXsProcessor& p)
     addAndMakeVisible(midiOutButton_);
 
     setResizable(true, true);
-    setResizeLimits(980, 620, 3000, 2000);
-    setSize(1240, 800);
+    // A Live device shares a chain with others; it should not open the size of
+    // a desktop app. Still resizable for real editing work.
+    setResizeLimits(880, 520, 3000, 2000);
+    setSize(1000, 640);
     startTimerHz(2);
 }
 
@@ -106,12 +108,12 @@ void MotifXsEditor::paint(juce::Graphics& g) { g.fillAll(theme::bg); }
 
 void MotifXsEditor::resized() {
     auto r = getLocalBounds();
-    auto strip = r.removeFromBottom(30).reduced(10, 4);
-    captureButton_.setBounds(strip.removeFromLeft(190));
+    auto strip = r.removeFromBottom(26).reduced(8, 3);
+    captureButton_.setBounds(strip.removeFromLeft(110));
+    strip.removeFromLeft(6);
+    midiOutButton_.setBounds(strip.removeFromLeft(96));
     strip.removeFromLeft(8);
-    midiOutButton_.setBounds(strip.removeFromLeft(110));
-    strip.removeFromLeft(10);
-    stateLabel_.setBounds(strip.removeFromLeft(320));
+    stateLabel_.setBounds(strip.removeFromLeft(280));
     hint_.setBounds(strip);
     ui_.setBounds(r);
 }
