@@ -32,7 +32,8 @@ public:
     DeviceWorker& operator=(const DeviceWorker&) = delete;
 
     /// Opens a port and identifies the rack. `done` runs on the worker thread.
-    void open(std::string portName, std::function<void(bool, std::string, DeviceInfo)> done);
+    void open(std::string portName, std::function<void(bool, std::string, DeviceInfo)> done,
+              std::string clientName = "Motif Rack XS");
     void close();
     [[nodiscard]] bool isOpen() const { return open_.load(); }
     [[nodiscard]] DeviceInfo info() const;

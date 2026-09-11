@@ -42,6 +42,7 @@ struct Device::Impl {
     std::string port;
     std::uint8_t deviceNumber{0};
 
+    RackLock lock;
     SysExReassembler reassembler;
     ChannelMessageParser channels;
     MIDIEndpointRef thru{};
@@ -165,11 +166,21 @@ void Device::setSysExListener(std::function<void(const Bytes&)> fn) {
     impl_->listener = std::move(fn);
 }
 
-bool Device::open(const std::string& wanted, std::string* error) {
+bool Device::open(const std::string& wanted, std::string* error,
+                  const std::string& clientName) {
     auto fail = [&](const char* m) {
         if (error) *error = m;
         return false;
     };
+
+    // One client at a time. CoreMIDI merges every client's output to a
+    // destination, so a second one's Parameter Requests land inside this one's
+    // bulk transfers and the rack rejects them.
+    std::string holder;
+    if (!impl_->lock.acquire(clientName, &holder)) {
+        if (error) *error = "the rack is already in use by " + holder;
+        return false;
+    }
 
     auto pick = [&](bool sources) -> std::pair<MIDIEndpointRef, std::string> {
         const ItemCount n = sources ? MIDIGetNumberOfSources() : MIDIGetNumberOfDestinations();
@@ -188,14 +199,18 @@ bool Device::open(const std::string& wanted, std::string* error) {
         return {0, {}};
     };
 
-    if (MIDIClientCreate(CFSTR("motifxs"), nullptr, nullptr, &impl_->client) != noErr)
+    if (MIDIClientCreate(CFSTR("motifxs"), nullptr, nullptr, &impl_->client) != noErr) {
+        impl_->lock.release();
         return fail("could not create a CoreMIDI client");
+    }
 
     auto [src, srcName] = pick(true);
     auto [dst, dstName] = pick(false);
-    if (!src || !dst)
+    if (!src || !dst) {
+        impl_->lock.release();
         return fail(wanted.empty() ? "no MOTIF-RACK XS Port1 endpoint found"
                                    : "named MIDI port not found");
+    }
 
     Impl* self = impl_.get();
     if (MIDIInputPortCreateWithBlock(
@@ -216,6 +231,7 @@ bool Device::open(const std::string& wanted, std::string* error) {
 
 void Device::close() {
     if (!impl_) return;
+    impl_->lock.release();
     if (impl_->in && impl_->source) MIDIPortDisconnectSource(impl_->in, impl_->source);
     impl_->source = 0;
     impl_->dest = 0;

@@ -136,6 +136,22 @@ Auto-connects to MOTIF-RACK XS Port1 and reads the rack's live state.
 ./build/motifxs dump-state                 # read the live edit buffer
 ```
 
+## One client at a time
+
+**Only one of the app, the plugin or the CLI may talk to the rack at once.**
+This is enforced, not advised: opening the rack takes an exclusive lock, and a
+second client is refused with a message naming the first.
+
+The reason is that the rack has a single MIDI port with no arbitration, and
+CoreMIDI merges the output of every client that opens a destination. A second
+client's Parameter Requests land *inside* the first one's bulk transfer,
+splitting the stream -- the rack rejects the sequence with "illegal bulk data"
+on its display and the transfer silently half-applies. Leaving the standalone
+app open while the plugin restored a project did exactly this.
+
+The lock is advisory on a file, so the operating system releases it if a process
+dies; a crash cannot leave the rack permanently locked.
+
 ## Using it in Ableton Live
 
 One track does everything. The plugin declares itself an **audio effect** (VST3

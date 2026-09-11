@@ -75,7 +75,7 @@ MotifXsProcessor::MotifXsProcessor()
                 const juce::ScopedLock lock(stateLock_);
                 portName_ = juce::String(info.portName);
             }
-        });
+        }, "the Motif Rack XS plugin");
     else
         portName_ = juce::String(worker_->info().portName);
 

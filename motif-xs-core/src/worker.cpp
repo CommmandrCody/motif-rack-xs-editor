@@ -24,10 +24,11 @@ void DeviceWorker::post(std::function<void(Device&)> job) {
 }
 
 void DeviceWorker::open(std::string portName,
-                        std::function<void(bool, std::string, DeviceInfo)> done) {
-    post([this, portName, done](Device& d) {
+                        std::function<void(bool, std::string, DeviceInfo)> done,
+                        std::string clientName) {
+    post([this, portName, done, clientName](Device& d) {
         std::string err;
-        if (!d.open(portName, &err)) {
+        if (!d.open(portName, &err, clientName)) {
             open_ = false;
             done(false, err, {});
             return;

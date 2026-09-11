@@ -72,9 +72,14 @@ std::optional<int> toHex(std::string_view s) {
 
 bool connect(Device& d) {
     std::string err;
-    if (!d.open(gPort, &err)) {
+    if (!d.open(gPort, &err, "motifxs")) {
         std::fprintf(stderr, "error: %s\n", err.c_str());
-        if (gPort.empty())
+        if (err.find("already in use") != std::string::npos)
+            std::fprintf(stderr,
+                         "hint: only one client may talk to the rack at a time -- a second\n"
+                         "      one's messages land inside the first one's bulk transfers.\n"
+                         "      Close the app or plugin named above and try again.\n");
+        else if (gPort.empty())
             std::fprintf(stderr, "hint: run 'motifxs list-midi' and pass --port <name>\n");
         return false;
     }

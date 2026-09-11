@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "motifxs/parameters.hpp"
+#include "motifxs/racklock.hpp"
 #include "motifxs/sysex.hpp"
 
 namespace motifxs {
@@ -41,7 +42,14 @@ public:
 
     /// Opens the named port for both directions. Empty name auto-selects the
     /// first endpoint containing "MOTIF".
-    [[nodiscard]] bool open(const std::string& portName, std::string* error = nullptr);
+    ///
+    /// Takes exclusive ownership of the rack first; if another client already
+    /// has it this fails and `error` names the holder. One client at a time is
+    /// a hard requirement, not a preference -- see RackLock.
+    ///
+    /// `clientName` appears in that message to whoever is refused next.
+    [[nodiscard]] bool open(const std::string& portName, std::string* error = nullptr,
+                            const std::string& clientName = "Motif Rack XS");
     void close();
     [[nodiscard]] bool isOpen() const;
     [[nodiscard]] const std::string& portName() const;
