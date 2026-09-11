@@ -58,6 +58,11 @@ struct State {
     [[nodiscard]] std::size_t payloadBytes() const;
     /// A short human summary, e.g. "39 blocks, 16 parts".
     [[nodiscard]] std::string summary() const;
+    /// Empty if this state can actually be put back on a rack; otherwise what
+    /// is wrong with it. A capture that is missing blocks is worse than no
+    /// capture at all: it saves into the project, replaces the good one, and is
+    /// only discovered when the project is reopened and the rack rejects it.
+    [[nodiscard]] std::string problem() const;
 };
 
 /// What a capture should include.

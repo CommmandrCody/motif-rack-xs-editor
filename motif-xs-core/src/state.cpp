@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <ctime>
 #include <fstream>
+#include <mutex>
 #include <sstream>
 #include <thread>
 
@@ -82,6 +83,39 @@ std::string State::summary() const {
     return os.str();
 }
 
+std::string State::problem() const {
+    if (messages.empty()) return "nothing was captured";
+
+    bool multiHeader = false, multiFooter = false;
+    std::array<bool, kParts> partSeen{};
+    partSeen.fill(false);
+    int voiceCommons = 0;
+    for (const auto& m : messages) {
+        const auto b = parseBulkDump(m);
+        if (!b) continue;
+        if (b->address.high == 0x0E && b->address.mid == 0x5F) multiHeader = true;
+        if (b->address.high == 0x0F && b->address.mid == 0x5F) multiFooter = true;
+        if (b->address.high == 0x37) partSeen[std::size_t(b->address.mid & 0x0F)] = true;
+        if ((b->address.high == 0x40 || b->address.high == 0x46) &&
+            b->address.mid == 0x00 && b->address.low == 0x00)
+            ++voiceCommons;
+    }
+
+    // A voice-only capture: one Common block and its framing is the whole of it.
+    if (!multiHeader && !multiFooter)
+        return voiceCommons > 0 ? std::string{}
+                                : "the voice came back without its Common block";
+
+    if (!multiHeader || !multiFooter) return "the Multi dump was cut short";
+
+    const int missing = int(std::count(partSeen.begin(), partSeen.end(), false));
+    if (missing == kParts)
+        return "the rack returned no part data at all - it is probably not in Multi mode";
+    if (missing > 0)
+        return std::to_string(missing) + " of 16 parts are missing from the Multi";
+    return {};
+}
+
 namespace {
 
 /// Requests one bulk sequence and collects blocks until its footer, then a
@@ -91,12 +125,20 @@ std::vector<Bytes> requestSequence(Device& device, Address header,
                                    std::chrono::milliseconds quietTime,
                                    std::function<void(int)> progress,
                                    int alreadyHave) {
+    // The listener runs on the CoreMIDI read thread while this one polls for
+    // progress, so the collection needs its own lock -- reading size() beside
+    // an unsynchronised push_back is a race, and a torn read here ends the
+    // sequence early and silently loses whatever had not arrived yet.
+    std::mutex collected;
     std::vector<Bytes> received;
     std::atomic<bool> sawFooter{false};
     device.setSysExListener([&](const Bytes& m) {
         const auto b = parseBulkDump(m);
         if (!b) return;
-        received.push_back(m);
+        {
+            std::lock_guard lock(collected);
+            received.push_back(m);
+        }
         if (b->address.high == footerHigh) sawFooter.store(true);
     });
 
@@ -107,8 +149,13 @@ std::vector<Bytes> requestSequence(Device& device, Address header,
     auto lastChange = std::chrono::steady_clock::now();
     while (std::chrono::steady_clock::now() < deadline) {
         std::this_thread::sleep_for(std::chrono::milliseconds{10});
-        if (received.size() != lastCount) {
-            lastCount = received.size();
+        std::size_t have = 0;
+        {
+            std::lock_guard lock(collected);
+            have = received.size();
+        }
+        if (have != lastCount) {
+            lastCount = have;
             lastChange = std::chrono::steady_clock::now();
             if (progress) progress(alreadyHave + int(lastCount));
         }
@@ -118,7 +165,8 @@ std::vector<Bytes> requestSequence(Device& device, Address header,
         const auto settle = sawFooter.load() ? std::chrono::milliseconds{80} : quietTime;
         if (sawFooter.load() && std::chrono::steady_clock::now() - lastChange > settle) break;
     }
-    device.setSysExListener({});
+    device.setSysExListener({});   // takes the device lock, so no call is in flight
+    std::lock_guard lock(collected);
     return received;
 }
 
@@ -148,6 +196,11 @@ std::optional<State> captureState(Device& device, std::function<void(int)> progr
             state.messages.insert(state.messages.end(), voice.begin(), voice.end());
         }
     }
+
+    // Saving a half-arrived capture is the worst outcome available: it looks
+    // like it worked, replaces the good state in the project, and only fails
+    // when the project is reopened and the rack rejects the stream.
+    if (!state.problem().empty()) return std::nullopt;
     return state;
 }
 
@@ -162,6 +215,7 @@ std::optional<State> captureVoice(Device& device, int part,
     s.deviceNumber = device.deviceNumber();
     s.capturedAt = nowIso8601();
     s.messages = std::move(msgs);
+    if (!s.problem().empty()) return std::nullopt;
     s.note = voiceName(s);
     return s;
 }
@@ -257,6 +311,17 @@ bool restoreState(Device& device, const State& state,
                   std::chrono::milliseconds interBlockDelay,
                   std::chrono::milliseconds settleAfterMulti) {
     if (!device.isOpen() || state.messages.empty()) return false;
+    // Never push a capture that is already known to be incomplete: the rack
+    // rejects the stream, shows "illegal bulk data", and half-applies it.
+    if (!state.problem().empty()) return false;
+
+    // Put the rack in Multi first -- the same thing as pressing MULTI on the
+    // front panel. The edit buffers this restores into only exist in Multi, so
+    // a restore that arrives while the rack is on a Voice has nowhere to land.
+    if (const auto* mode = findParameter(Scope::ModeChange, 0x0A, 0x00, 0x01)) {
+        device.writeParameter(*mode, 5);                       // 5: Multi
+        std::this_thread::sleep_for(std::chrono::milliseconds{250});
+    }
 
     // Split into bulk sequences: a header (0E) starts one, a footer (0F) ends
     // it. They must be sent whole and in order, and a voice sequence needs its

@@ -655,6 +655,8 @@ int main(int argc, char** argv) {
                     rest[0], st->capturedAt.c_str(), double(st->firmware),
                     st->summary().c_str());
         if (!st->note.empty()) std::printf("  note     : %s\n", st->note.c_str());
+        if (const auto bad = st->problem(); !bad.empty())
+            std::printf("  UNUSABLE : %s - this file cannot be restored\n", bad.c_str());
         // name the voice on each part, so a file says what it actually holds
         for (const auto& m : st->messages) {
             const auto b = parseBulkDump(m);

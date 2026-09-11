@@ -245,7 +245,8 @@ void MotifXsProcessor::captureNow(std::function<void(bool, juce::String)> done) 
     worker_->post([this, done](Device& d) {
         auto st = captureState(d);
         if (!st) {
-            if (done) done(false, "the rack sent no bulk data - is it in Multi mode?");
+            if (done)
+                done(false, "the rack did not send a complete Multi - project state NOT updated");
             return;
         }
         {
