@@ -134,6 +134,31 @@ Auto-connects to MOTIF-RACK XS Port1 and reads the rack's live state.
 ./build/motifxs dump-state                 # read the live edit buffer
 ```
 
+## Using it in Ableton Live
+
+One track does everything. The plugin declares itself an **audio effect** (VST3
+sub-category `Fx`), so it can sit *after* an External Instrument device:
+
+```
+MIDI track
+├─ MIDI clips
+├─ External Instrument      MIDI To:    YAMAHA MOTIF-R XS Port1, channel N
+│                           Audio From: the interface input the rack returns on
+└─ Motif Rack XS            <- editor, state recall, and the SCOPE sees the audio
+```
+
+Being in the audio chain costs the plugin nothing: it ignores host MIDI
+entirely and talks to the rack over its own CoreMIDI connection, for the reasons
+in `docs/vst-architecture.md`. Put it before the External Instrument and it
+still controls the rack -- it just sees no audio, so the SCOPE page stays empty
+and says so.
+
+**Recording the arpeggiator** is the one thing that wants a second track,
+because a plugin in the audio chain cannot record its MIDI output to its own
+track. Arm **ARP -> DAW** in the plugin, then on a second MIDI track set
+*MIDI From* to that track and the **Motif Rack XS** plugin, and record-arm it.
+The part also needs `ARP` and `OUT` enabled or the rack transmits nothing.
+
 ## Data
 
 Extracted from Yamaha's published documentation, not from any binary.
