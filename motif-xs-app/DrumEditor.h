@@ -165,7 +165,7 @@ public:
             if (onKeySelected) onKeySelected(ee);
         };
 
-        header_.setFont(juce::FontOptions(15.0f, juce::Font::bold));
+        header_.setFont(theme::panelFont(15.5f));
         header_.setColour(juce::Label::textColourId, theme::text);
         addAndMakeVisible(header_);
 
@@ -186,7 +186,7 @@ public:
 
             l.setText(spec.label, juce::dontSendNotification);
             l.setJustificationType(juce::Justification::centred);
-            l.setFont(juce::FontOptions(10.5f));
+            l.setFont(theme::panelFont(11.0f));
             l.setColour(juce::Label::textColourId, theme::dim);
             addAndMakeVisible(l);
 
@@ -210,7 +210,7 @@ public:
         altGroupLabel_.setText("ALT GROUP", juce::dontSendNotification);
         rcvOffLabel_.setText("KEY OFF", juce::dontSendNotification);
         for (auto* l : {&altGroupLabel_, &rcvOffLabel_}) {
-            l->setFont(juce::FontOptions(10.5f));
+            l->setFont(theme::panelFont(11.0f));
             l->setColour(juce::Label::textColourId, theme::dim);
             l->setJustificationType(juce::Justification::centredRight);
             addAndMakeVisible(*l);

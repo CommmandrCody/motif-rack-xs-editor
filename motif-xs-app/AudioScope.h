@@ -50,7 +50,7 @@ public:
             const auto devices = tap_->inputDevices();
             if (!devices.isEmpty()) {
                 inputLabel_.setText("INPUT", juce::dontSendNotification);
-                inputLabel_.setFont(juce::FontOptions(10.5f));
+                inputLabel_.setFont(theme::panelFont(11.0f));
                 inputLabel_.setColour(juce::Label::textColourId, theme::dim);
                 inputLabel_.setJustificationType(juce::Justification::centredRight);
                 addAndMakeVisible(inputLabel_);
@@ -185,7 +185,7 @@ private:
         g.strokePath(p, juce::PathStrokeType(1.4f));
 
         g.setColour(theme::dim);
-        g.setFont(juce::FontOptions(10.0f));
+        g.setFont(theme::panelFont(10.5f));
         g.drawText("WAVEFORM", area.reduced(6), juce::Justification::topLeft);
         const juce::String status = tap_ != nullptr ? tap_->tapStatus() : juce::String();
         g.drawText(peak_ > 0.0001f
@@ -215,7 +215,7 @@ private:
         }
 
         g.setColour(theme::dim);
-        g.setFont(juce::FontOptions(10.0f));
+        g.setFont(theme::panelFont(10.5f));
         g.drawText("SPECTRUM   20 Hz - Nyquist, log", area.reduced(6),
                    juce::Justification::topLeft);
     }

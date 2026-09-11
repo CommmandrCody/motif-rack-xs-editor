@@ -198,7 +198,7 @@ private:
             g.fillPath(tri);
 
             g.setColour(theme::text);
-            g.setFont(juce::FontOptions(12.0f, juce::Font::bold));
+            g.setFont(theme::panelFont(13.0f));
             g.drawText(juce::String(r.category), 28, 0, w - 90, h, juce::Justification::centredLeft);
             g.setColour(theme::dim);
             g.setFont(juce::FontOptions(11.0f));
@@ -358,10 +358,10 @@ private:
     void paintListBoxItem(int row, juce::Graphics& g, int w, int h, bool selected) override {
         if (row < 0 || row >= int(rows_.size())) return;
         const auto* a = rows_[size_t(row)];
-        if (selected) g.fillAll(theme::accentDim);
+        if (selected) g.fillAll(theme::violet.withAlpha(0.42f));
         else if (row % 2) g.fillAll(theme::panelHi.withAlpha(0.35f));
 
-        g.setColour(theme::dim);
+        g.setColour(selected ? theme::text : theme::violet.withAlpha(0.85f));
         g.setFont(juce::FontOptions(11.0f));
         g.drawText(juce::String(a->number), 8, 0, 44, h, juce::Justification::centredLeft);
 

@@ -151,7 +151,7 @@ MainComponent::MainComponent(DeviceWorker& worker, AudioTap* tap)
     addAndMakeVisible(arpMidiOut_);
 
     thruLabel_.setText("THRU", juce::dontSendNotification);
-    thruLabel_.setFont(juce::FontOptions(11.0f));
+    thruLabel_.setFont(theme::panelFont(11.5f));
     thruLabel_.setColour(juce::Label::textColourId, theme::dim);
     thruLabel_.setJustificationType(juce::Justification::centredRight);
     addAndMakeVisible(thruLabel_);
@@ -172,7 +172,7 @@ MainComponent::MainComponent(DeviceWorker& worker, AudioTap* tap)
     addAndMakeVisible(thruBox_);
 
     arpNameLabel_.setFont(juce::FontOptions(12.0f));
-    arpNameLabel_.setColour(juce::Label::textColourId, theme::dim);
+    arpNameLabel_.setColour(juce::Label::textColourId, theme::violet.brighter(0.25f));
     addAndMakeVisible(arpNameLabel_);
 
     arps_.onPick = [this](const Arpeggio& a) {
@@ -224,6 +224,7 @@ MainComponent::MainComponent(DeviceWorker& worker, AudioTap* tap)
     // normally (the bar's right end is transparent) while doing nothing.
     auditionButton_.toFront(false);
 
+    arpSlot_.setColour(juce::ComboBox::textColourId, theme::violet.brighter(0.35f));
     arpSlot_.addItem("SF1", 1); arpSlot_.addItem("SF2", 2); arpSlot_.addItem("SF3", 3);
     arpSlot_.addItem("SF4", 4); arpSlot_.addItem("SF5", 5);
     arpSlot_.setSelectedId(1, juce::dontSendNotification);
@@ -847,11 +848,11 @@ void MainComponent::paint(juce::Graphics& g) {
     auto header = r.removeFromTop(kNameRowH).reduced(10, 1);
     header.removeFromRight(440);   // room for the arp controls
     g.setColour(theme::dim);
-    g.setFont(juce::FontOptions(11.0f));
+    g.setFont(theme::panelFont(11.0f));
     g.drawText("PART " + juce::String(part_ + 1), header.removeFromLeft(60),
                juce::Justification::centredLeft);
     g.setColour(theme::text);
-    g.setFont(juce::FontOptions(16.0f, juce::Font::bold));
+    g.setFont(theme::panelFont(18.0f));
     g.drawText(partVoiceNames_[size_t(part_)].isEmpty() ? juce::String("--")
                                                         : partVoiceNames_[size_t(part_)],
                header, juce::Justification::centredLeft, true);

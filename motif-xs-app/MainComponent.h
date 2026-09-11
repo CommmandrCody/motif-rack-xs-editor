@@ -27,7 +27,7 @@ public:
 
         name_.setText(label, juce::dontSendNotification);
         name_.setJustificationType(juce::Justification::centred);
-        name_.setFont(juce::FontOptions(10.0f));
+        name_.setFont(theme::panelFont(10.5f));
         name_.setColour(juce::Label::textColourId, theme::dim);
         addAndMakeVisible(name_);
 

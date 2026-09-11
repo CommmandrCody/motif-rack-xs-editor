@@ -1,20 +1,42 @@
 #pragma once
 #include <juce_gui_basics/juce_gui_basics.h>
 
-/// A dark, restrained palette. The rack is the instrument; the UI should stay
-/// out of the way and keep the eye on names and values.
+/// Drawn from the instrument it controls: the MOTIF XS is a near-black chassis
+/// with a saturated blue backlit display, and Yamaha's own mark is violet. The
+/// rack is the instrument, so the UI still stays out of the way -- the colour
+/// is on the values, not the furniture.
 namespace theme {
-inline const juce::Colour bg{0xff17181c};
-inline const juce::Colour panel{0xff1f2126};
-inline const juce::Colour panelHi{0xff282b32};
-inline const juce::Colour line{0xff32363f};
-inline const juce::Colour text{0xffe4e6ea};
-inline const juce::Colour dim{0xff8b919c};
-inline const juce::Colour accent{0xff5aa9e6};
-inline const juce::Colour accentDim{0xff2f5f80};
-inline const juce::Colour good{0xff5ec98a};
-inline const juce::Colour warn{0xffe6a23c};
-inline const juce::Colour bad{0xffe06c75};
+inline const juce::Colour bg{0xff121317};        // chassis
+inline const juce::Colour panel{0xff1a1c22};
+inline const juce::Colour panelHi{0xff23262e};
+inline const juce::Colour line{0xff333846};
+inline const juce::Colour text{0xffe8ebf2};
+inline const juce::Colour dim{0xff868d9d};
+inline const juce::Colour accent{0xff1fa8dc};    // the backlit display
+inline const juce::Colour accentDim{0xff174e69};
+inline const juce::Colour violet{0xff7a5cd6};    // Yamaha's mark
+inline const juce::Colour good{0xff3fc294};
+inline const juce::Colour warn{0xffe8a33d};
+inline const juce::Colour bad{0xffe0584f};
+
+/// Panel lettering. DIN Condensed is the typeface equipment panels have been
+/// silkscreened in for decades, which is exactly the association wanted here;
+/// Avenir Next Condensed stands in if it is missing, and the system font if
+/// both are. Used for labels only -- lists and values stay in the system face,
+/// where legibility matters more than character.
+inline juce::Font panelFont(float height, bool bold = true) {
+    static const juce::String family = [] {
+        const auto installed = juce::Font::findAllTypefaceNames();
+        for (const char* candidate : {"DIN Condensed", "Avenir Next Condensed",
+                                      "HelveticaNeue-CondensedBold"})
+            if (installed.contains(candidate)) return juce::String(candidate);
+        return juce::String{};
+    }();
+    if (family.isEmpty())
+        return juce::Font(juce::FontOptions(height).withStyle(bold ? "Bold" : "Regular"));
+    // DIN Condensed ships bold only, and reads small, so it is nudged up.
+    return juce::Font(juce::FontOptions(family, height * 1.18f, juce::Font::plain));
+}
 
 /// Knobs and lists, styled once so every panel matches.
 class Look : public juce::LookAndFeel_V4 {

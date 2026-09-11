@@ -34,7 +34,7 @@ public:
     };
 
     ElementEditor() {
-        header_.setFont(juce::FontOptions(15.0f, juce::Font::bold));
+        header_.setFont(theme::panelFont(15.5f));
         header_.setColour(juce::Label::textColourId, theme::text);
         addAndMakeVisible(header_);
 
@@ -109,7 +109,7 @@ public:
             auto& k = detailKnobs_[i];
             l.setText(kDetails[i].label, juce::dontSendNotification);
             l.setJustificationType(juce::Justification::centred);
-            l.setFont(juce::FontOptions(10.5f));
+            l.setFont(theme::panelFont(11.0f));
             l.setColour(juce::Label::textColourId, theme::dim);
             addAndMakeVisible(l);
 
@@ -134,7 +134,7 @@ public:
         filterLabel_.setText("FILTER", juce::dontSendNotification);
         xaLabel_.setText("XA CONTROL", juce::dontSendNotification);
         for (auto* l : {&filterLabel_, &xaLabel_}) {
-            l->setFont(juce::FontOptions(10.5f));
+            l->setFont(theme::panelFont(11.0f));
             l->setColour(juce::Label::textColourId, theme::dim);
             l->setJustificationType(juce::Justification::centredRight);
             addAndMakeVisible(*l);
