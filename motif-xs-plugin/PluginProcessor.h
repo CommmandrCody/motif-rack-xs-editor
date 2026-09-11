@@ -87,6 +87,10 @@ public:
     /// saved right now would not bring back what you are hearing.
     [[nodiscard]] bool stateIsStale() const;
 
+    /// What the last project-load restore did, in words. A restore that found
+    /// no rack used to fail silently, leaving the user to discover it by ear.
+    [[nodiscard]] juce::String restoreStatus() const;
+
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout makeLayout();
     /// Drains automation movement on the message thread at a musical rate, and
@@ -104,6 +108,7 @@ private:
     juce::AudioProcessorValueTreeState apvts_;
 
     mutable juce::CriticalSection stateLock_;
+    juce::String restoreStatus_;
     motifxs::State captured_;
     juce::String portName_;
 

@@ -244,6 +244,11 @@ void MotifXsProcessor::captureNow(std::function<void(bool, juce::String)> done) 
     });
 }
 
+juce::String MotifXsProcessor::restoreStatus() const {
+    const juce::ScopedLock lock(stateLock_);
+    return restoreStatus_;
+}
+
 juce::String MotifXsProcessor::stateSummary() const {
     const juce::ScopedLock lock(stateLock_);
     return captured_.empty() ? juce::String("nothing captured yet")
@@ -283,10 +288,28 @@ void MotifXsProcessor::setStateInformation(const void* data, int size) {
         const juce::ScopedLock lock(stateLock_);
         captured_ = *st;
     }
-    // Never send MIDI from setStateInformation: the host may call it before
-    // the device is open, and on its own thread. Hand it to the worker.
-    worker_->post([captured = *st](Device& d) {
-        if (d.isOpen()) restoreState(d, captured);
+    {
+        const juce::ScopedLock lock(stateLock_);
+        restoreStatus_ = "restoring the rack...";
+        capturedAtChange_ = worker_->changeCount();   // a restore is not an edit
+    }
+
+    // Never send MIDI from setStateInformation: the host may call it before the
+    // device is open, and on its own thread. Hand it to the worker, which runs
+    // this after the open job queued in the constructor.
+    worker_->post([this, captured = *st](Device& d) {
+        if (!d.isOpen()) {
+            // Silently doing nothing here is how a project could open with the
+            // rack on entirely the wrong sounds and no indication why.
+            const juce::ScopedLock lock(stateLock_);
+            restoreStatus_ = "no rack found - the project's sounds were not restored";
+            return;
+        }
+        const bool ok = restoreState(d, captured);
+        const juce::ScopedLock lock(stateLock_);
+        restoreStatus_ = ok ? juce::String("restored from the project")
+                            : juce::String("restore failed");
+        capturedAtChange_ = worker_->changeCount();
     });
 }
 

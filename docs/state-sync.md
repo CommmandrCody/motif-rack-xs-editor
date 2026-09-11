@@ -184,6 +184,20 @@ writes are never acknowledged:
   half-applied. The Multi footer is followed by a long settle (1.2 s); a voice
   footer only swaps one edit buffer and needs about 90 ms.
 
+**Restore is sequenced, not streamed.** Each bulk sequence is sent whole, and a
+part's own block from the captured Multi is re-sent immediately before its
+voice, which puts that part on the right patch -- and so allocates the right
+*kind* of edit buffer -- using the capture's own data.
+
+The tempting shortcut, forcing the type with a Program Change to some neutral
+patch, rewrites the part's bank and program as a side effect. Applied to every
+part it silently reset an entire Multi to PRE1 000, and the next capture then
+faithfully recorded the wreckage. Use the capture's own part block instead.
+
+`applyVoice` is the exception: it has no Multi to draw on, so it does send a
+neutral patch of the right kind first, and the part's bank and program no longer
+describe what is loaded afterwards -- the same as editing a voice on the rack.
+
 `applyVoice` now sets the part to a voice of the right *kind* before sending
 (any patch of that kind will do -- the bulk replaces its contents), and verifies
 afterwards by reading the voice name back. It used to return success whether or

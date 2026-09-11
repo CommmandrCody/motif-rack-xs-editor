@@ -94,6 +94,19 @@ MotifXsEditor::MotifXsEditor(MotifXsProcessor& p)
 }
 
 void MotifXsEditor::timerCallback() {
+    // A restore in progress is the more urgent thing to say; it takes long
+    // enough that silence would look like nothing was happening.
+    const auto restore = processor_.restoreStatus();
+    if (restore.isNotEmpty() && restore.startsWith("restoring")) {
+        stateLabel_.setText(restore, juce::dontSendNotification);
+        stateLabel_.setColour(juce::Label::textColourId, theme::warn);
+        return;
+    }
+    if (restore.startsWith("no rack") || restore.startsWith("restore failed")) {
+        stateLabel_.setText(restore, juce::dontSendNotification);
+        stateLabel_.setColour(juce::Label::textColourId, theme::bad);
+        return;
+    }
     const bool stale = processor_.stateIsStale();
     stateLabel_.setText(stale ? "project state: capturing changes..."
                               : "project state: " + processor_.stateSummary(),

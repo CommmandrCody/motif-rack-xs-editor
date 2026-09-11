@@ -1,6 +1,7 @@
 #include "motifxs/state.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstdio>
 #include <ctime>
 #include <fstream>
@@ -254,34 +255,87 @@ bool applyVoice(Device& device, const State& voice, int targetPart,
 bool restoreState(Device& device, const State& state,
                   std::function<void(int, int)> progress,
                   std::chrono::milliseconds interBlockDelay,
-                  std::chrono::milliseconds settleAfterSequence) {  // after the Multi
+                  std::chrono::milliseconds settleAfterMulti) {
     if (!device.isOpen() || state.messages.empty()) return false;
 
-    const int total = int(state.messages.size());
-    for (int i = 0; i < total; ++i) {
-        Bytes m = state.messages[std::size_t(i)];
-        // Re-stamp the device number: a state file may have come from a rack
-        // set to a different one. Byte 2 is outside the checksummed range, so
-        // this does not invalidate the message.
-        if (m.size() > 2) m[2] = std::uint8_t((m[2] & 0xF0) | (device.deviceNumber() & 0x0F));
-        device.send(m);
-        if (progress) progress(i + 1, total);
+    // Split into bulk sequences: a header (0E) starts one, a footer (0F) ends
+    // it. They must be sent whole and in order, and a voice sequence needs its
+    // part put on the right kind of voice first.
+    struct Sequence {
+        std::vector<Bytes> messages;
+        bool isVoice{};      // 0E 30 nn -- a part's voice, rather than the Multi
+        int part{};
+        bool drum{};
+    };
+    // Each part's own block from the captured Multi. Re-sending a part's block
+    // immediately before its voice puts that part on the right patch -- and so
+    // the right *kind* of voice -- using the capture's own data.
+    //
+    // The alternative, forcing the type with a Program Change to some neutral
+    // patch, rewrites the part's bank and program as a side effect. Done for
+    // every part it silently reset an entire Multi to PRE1 000.
+    std::array<const Bytes*, kParts> partBlock{};
+    partBlock.fill(nullptr);
+    for (const auto& m : state.messages) {
+        const auto b = parseBulkDump(m);
+        if (b && b->address.high == 0x37)
+            partBlock[std::size_t(b->address.mid & 0x0F)] = &m;
+    }
 
-        // A Bulk Footer ends a sequence. The Multi's footer is the one that
-        // matters: restoring it issued a bank select and program change for all
-        // sixteen parts, and the rack is still loading those voices. Start
-        // pushing voice blocks before that finishes and they land at parts
-        // still holding the previous voice -- wrong type, rejected, and the
-        // restore silently half-applies. A voice footer only swaps one edit
-        // buffer and needs far less.
-        const auto parsed = parseBulkDump(m);
-        if (parsed && parsed->address.high == 0x0F) {
-            const bool wasMulti = parsed->address.mid == kMultiEditBufferFooter.mid;
-            std::this_thread::sleep_for(wasMulti ? settleAfterSequence
-                                                 : std::chrono::milliseconds{90});
-        } else {
+    std::vector<Sequence> sequences;
+    for (const auto& m : state.messages) {
+        const auto b = parseBulkDump(m);
+        if (b && b->address.high == 0x0E) {
+            sequences.push_back({});
+            sequences.back().isVoice = b->address.mid == 0x30;
+            sequences.back().part = b->address.low & 0x0F;
+        }
+        if (sequences.empty()) sequences.push_back({});
+        sequences.back().messages.push_back(m);
+        if (b && (b->address.high == 0x46 || b->address.high == 0x47))
+            sequences.back().drum = true;
+    }
+
+    int sent = 0;
+    const int total = int(state.messages.size());
+    for (auto& seq : sequences) {
+        // The Multi issues a bank select and program change for all sixteen
+        // parts; the rack then has to load those voices before anything can be
+        // written into their edit buffers.
+        if (!seq.isVoice) {
+            for (const auto& m : seq.messages) {
+                Bytes out = m;
+                if (out.size() > 2)
+                    out[2] = std::uint8_t((out[2] & 0xF0) | (device.deviceNumber() & 0x0F));
+                device.send(out);
+                if (progress) progress(++sent, total);
+                std::this_thread::sleep_for(interBlockDelay);
+            }
+            std::this_thread::sleep_for(settleAfterMulti);
+            continue;
+        }
+
+        // Restate this part's patch right before its voice, so the rack has
+        // definitely allocated the right kind of edit buffer. Pushing Normal
+        // Voice blocks at a part still holding a drum kit is rejected wholesale
+        // and shows "illegal bulk data".
+        if (const Bytes* pb = partBlock[std::size_t(seq.part & 0x0F)]) {
+            Bytes out = *pb;
+            if (out.size() > 2)
+                out[2] = std::uint8_t((out[2] & 0xF0) | (device.deviceNumber() & 0x0F));
+            device.send(out);
+            std::this_thread::sleep_for(std::chrono::milliseconds{380});
+        }
+
+        for (const auto& m : seq.messages) {
+            Bytes out = m;
+            if (out.size() > 2)
+                out[2] = std::uint8_t((out[2] & 0xF0) | (device.deviceNumber() & 0x0F));
+            device.send(out);
+            if (progress) progress(++sent, total);
             std::this_thread::sleep_for(interBlockDelay);
         }
+        std::this_thread::sleep_for(std::chrono::milliseconds{120});
     }
     return true;
 }
