@@ -186,6 +186,11 @@ private:
     bool auditionSounding_{false};
 
     bool retriedAuto_{false};
+    /// Set when the rack refused us because another client holds it. The other
+    /// client is usually the plugin in a running DAW, so rather than making the
+    /// user press Connect at the right moment we retry quietly until it lets go.
+    std::atomic<bool> blocked_{false};
+    int blockedRetryTicks_{0};
     std::unique_ptr<juce::PropertiesFile> settings_;
     void loadSettings();
     void saveSettings();

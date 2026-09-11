@@ -94,6 +94,16 @@ MotifXsEditor::MotifXsEditor(MotifXsProcessor& p)
 }
 
 void MotifXsEditor::timerCallback() {
+    // Nothing else matters if the rack is not ours: no edit, capture or
+    // restore can work, and the cause is almost always the standalone app.
+    if (const auto blocked = processor_.deviceError(); blocked.isNotEmpty()) {
+        stateLabel_.setText(blocked.contains("already in use")
+                                ? blocked + " - close it and this will reconnect"
+                                : blocked,
+                            juce::dontSendNotification);
+        stateLabel_.setColour(juce::Label::textColourId, theme::bad);
+        return;
+    }
     // A restore in progress is the more urgent thing to say; it takes long
     // enough that silence would look like nothing was happening.
     const auto restore = processor_.restoreStatus();

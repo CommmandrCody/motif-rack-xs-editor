@@ -311,6 +311,15 @@ void MainComponent::connect() {
     setStatus("connecting...", theme::dim);
     worker_.open(name, [this, name](bool ok, std::string err, DeviceInfo info) {
         if (!ok) {
+            // Another client holds the rack. A different port will not help --
+            // there is only one rack -- so say what to close instead of
+            // hunting for a port that cannot exist.
+            if (err.find("already in use") != std::string::npos) {
+                blocked_ = true;
+                setStatus(juce::String(err) + " - close it and this app will connect",
+                          theme::bad);
+                return;
+            }
             setStatus(juce::String(err), theme::bad);
             // A remembered or mis-picked port cannot answer. Try once more
             // letting the device layer find the rack's Port1 itself.
@@ -330,6 +339,7 @@ void MainComponent::connect() {
             return;
         }
         retriedAuto_ = false;
+        blocked_ = false;
         setStatus("connected", theme::good);
         juce::MessageManager::callAsync([this, info] {
             deviceLabel_.setText("device " + juce::String(info.deviceNumber) +
@@ -827,6 +837,16 @@ void MainComponent::pushKnob(ParamKnob& k) {
 }
 
 void MainComponent::timerCallback() {
+    // Blocked by another client: retry about every three seconds so closing
+    // the DAW is all it takes to get the app working again.
+    if (blocked_.load() && !worker_.isOpen()) {
+        if (++blockedRetryTicks_ >= 60) {
+            blockedRetryTicks_ = 0;
+            connect();
+        }
+    } else {
+        blockedRetryTicks_ = 0;
+    }
     if (!dirty_.exchange(false)) return;
     if (pendingStatus_.isNotEmpty()) {
         statusLabel_.setText(pendingStatus_, juce::dontSendNotification);

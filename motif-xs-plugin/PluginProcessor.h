@@ -90,6 +90,9 @@ public:
     /// What the last project-load restore did, in words. A restore that found
     /// no rack used to fail silently, leaving the user to discover it by ear.
     [[nodiscard]] juce::String restoreStatus() const;
+    /// Why the rack could not be opened, empty once it is. Almost always the
+    /// standalone app holding the single-client lock.
+    [[nodiscard]] juce::String deviceError() const;
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout makeLayout();
@@ -100,7 +103,13 @@ private:
     void timerCallback() override {
         pushAutomationToDevice();
         maybeAutoCapture();
+        retryOpenIfBlocked();
     }
+    /// The rack takes one client at a time. If something else held it when this
+    /// instance loaded, keep trying so closing that other thing is enough.
+    void retryOpenIfBlocked();
+    void openDevice();
+    int retryTicks_{0};
     void pushAutomationToDevice();
 
     /// Shared with every other instance in this host process.
@@ -109,6 +118,7 @@ private:
 
     mutable juce::CriticalSection stateLock_;
     juce::String restoreStatus_;
+    juce::String deviceError_;
     motifxs::State captured_;
     juce::String portName_;
 

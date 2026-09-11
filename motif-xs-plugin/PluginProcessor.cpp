@@ -70,12 +70,7 @@ MotifXsProcessor::MotifXsProcessor()
     // Another instance may already have opened it; opening again is harmless
     // and re-confirms the device number.
     if (!worker_->isOpen())
-        worker_->open({}, [this](bool ok, std::string, DeviceInfo info) {
-            if (ok) {
-                const juce::ScopedLock lock(stateLock_);
-                portName_ = juce::String(info.portName);
-            }
-        }, "the Motif Rack XS plugin");
+        openDevice();
     else
         portName_ = juce::String(worker_->info().portName);
 
@@ -259,6 +254,36 @@ void MotifXsProcessor::captureNow(std::function<void(bool, juce::String)> done) 
         }
         if (done) done(true, juce::String(stateSummary()));
     });
+}
+
+void MotifXsProcessor::openDevice() {
+    worker_->open({}, [this](bool ok, std::string err, DeviceInfo info) {
+        const juce::ScopedLock lock(stateLock_);
+        if (ok) {
+            portName_ = juce::String(info.portName);
+            deviceError_.clear();
+        } else {
+            deviceError_ = juce::String(err);
+        }
+    }, "the Motif Rack XS plugin");
+}
+
+void MotifXsProcessor::retryOpenIfBlocked() {
+    if (worker_->isOpen()) return;
+    {
+        const juce::ScopedLock lock(stateLock_);
+        if (deviceError_.isEmpty()) return;
+    }
+    // The timer runs at 30 Hz; every couple of seconds is often enough to feel
+    // immediate without hammering CoreMIDI while a DAW is loading.
+    if (++retryTicks_ < 60) return;
+    retryTicks_ = 0;
+    openDevice();
+}
+
+juce::String MotifXsProcessor::deviceError() const {
+    const juce::ScopedLock lock(stateLock_);
+    return deviceError_;
 }
 
 juce::String MotifXsProcessor::restoreStatus() const {
