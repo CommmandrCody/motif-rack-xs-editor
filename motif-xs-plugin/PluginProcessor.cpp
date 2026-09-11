@@ -243,7 +243,10 @@ juce::AudioProcessorEditor* MotifXsProcessor::createEditor() {
 
 void MotifXsProcessor::captureNow(std::function<void(bool, juce::String)> done) {
     worker_->post([this, done](Device& d) {
-        auto st = captureState(d);
+        std::string report;
+        auto st = captureState(d, {}, std::chrono::milliseconds{700},
+                               CaptureScope::WithVoices, &report);
+        writeDiagnostic("last-capture-report.txt", report);
         if (!st) {
             if (done)
                 done(false, "the rack did not send a complete Multi - project state NOT updated");

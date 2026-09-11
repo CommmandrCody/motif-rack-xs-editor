@@ -124,7 +124,8 @@ std::vector<Bytes> requestSequence(Device& device, Address header,
                                    std::uint8_t footerHigh,
                                    std::chrono::milliseconds quietTime,
                                    std::function<void(int)> progress,
-                                   int alreadyHave) {
+                                   int alreadyHave,
+                                   std::string* report = nullptr) {
     // The listener runs on the CoreMIDI read thread while this one polls for
     // progress, so the collection needs its own lock -- reading size() beside
     // an unsynchronised push_back is a race, and a torn read here ends the
@@ -132,9 +133,19 @@ std::vector<Bytes> requestSequence(Device& device, Address header,
     std::mutex collected;
     std::vector<Bytes> received;
     std::atomic<bool> sawFooter{false};
+    // Counted separately: SysEx that arrived during the sequence but was not a
+    // bulk block. Dropping those without trace is how a short capture becomes
+    // unexplainable -- a block damaged in transit looks the same as one the
+    // rack never sent.
+    std::atomic<int> unparsed{0};
+    std::atomic<int> biggest{0};
     device.setSysExListener([&](const Bytes& m) {
         const auto b = parseBulkDump(m);
-        if (!b) return;
+        if (int(m.size()) > biggest.load()) biggest.store(int(m.size()));
+        if (!b) {
+            unparsed.fetch_add(1);
+            return;
+        }
         {
             std::lock_guard lock(collected);
             received.push_back(m);
@@ -167,13 +178,23 @@ std::vector<Bytes> requestSequence(Device& device, Address header,
     }
     device.setSysExListener({});   // takes the device lock, so no call is in flight
     std::lock_guard lock(collected);
+    if (report) {
+        char line[160];
+        std::snprintf(line, sizeof line,
+                      "%02X %02X %02X: %zu blocks, %d unparsed, largest %d bytes%s\n",
+                      header.high, header.mid, header.low, received.size(),
+                      unparsed.load(), biggest.load(),
+                      sawFooter.load() ? "" : ", NO FOOTER (timed out)");
+        *report += line;
+    }
     return received;
 }
 
 }  // namespace
 
 std::optional<State> captureState(Device& device, std::function<void(int)> progress,
-                                  std::chrono::milliseconds quietTime, CaptureScope scope) {
+                                  std::chrono::milliseconds quietTime, CaptureScope scope,
+                                  std::string* report) {
     if (!device.isOpen()) return std::nullopt;
 
     State state;
@@ -181,7 +202,7 @@ std::optional<State> captureState(Device& device, std::function<void(int)> progr
     state.capturedAt = nowIso8601();
 
     auto multi = requestSequence(device, kMultiEditBufferHeader,
-                                 kMultiEditBufferFooter.high, quietTime, progress, 0);
+                                 kMultiEditBufferFooter.high, quietTime, progress, 0, report);
     if (multi.empty()) return std::nullopt;
     state.messages = std::move(multi);
 
@@ -192,7 +213,7 @@ std::optional<State> captureState(Device& device, std::function<void(int)> progr
         for (int part = 0; part < kParts; ++part) {
             auto voice = requestSequence(device, partVoiceHeader(part),
                                          partVoiceFooter(part).high, quietTime, progress,
-                                         int(state.messages.size()));
+                                         int(state.messages.size()), report);
             state.messages.insert(state.messages.end(), voice.begin(), voice.end());
         }
     }
@@ -200,7 +221,10 @@ std::optional<State> captureState(Device& device, std::function<void(int)> progr
     // Saving a half-arrived capture is the worst outcome available: it looks
     // like it worked, replaces the good state in the project, and only fails
     // when the project is reopened and the rack rejects the stream.
-    if (!state.problem().empty()) return std::nullopt;
+    if (const auto bad = state.problem(); !bad.empty()) {
+        if (report) *report += "REJECTED: " + bad + "\n";
+        return std::nullopt;
+    }
     return state;
 }
 

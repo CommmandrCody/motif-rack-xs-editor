@@ -570,16 +570,17 @@ int main(int argc, char** argv) {
         if (!connectAndIdentify(d, &info)) return 1;
         std::printf("capturing the Multi...\n");
         int lastShown = 0;
+        std::string report;
         auto st = captureState(d, [&lastShown](int got) {
             if (got - lastShown < 20) return;      // do not spam the terminal
             lastShown = got;
             std::printf("\r  %d blocks ", got);
             std::fflush(stdout);
-        });
+        }, std::chrono::milliseconds{700}, CaptureScope::WithVoices, &report);
         std::putchar('\n');
+        std::fputs(report.c_str(), stderr);   // what the rack actually sent
         if (!st) {
-            std::fprintf(stderr, "error: the rack sent no bulk data\n");
-            std::fprintf(stderr, "hint: this captures the Multi, so the rack must be in Multi mode\n");
+            std::fprintf(stderr, "error: the capture is not restorable, so it was not saved\n");
             return 1;
         }
         st->firmware = info.firmwareVersion;

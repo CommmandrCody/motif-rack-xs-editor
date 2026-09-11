@@ -73,10 +73,16 @@ enum class CaptureScope {
 
 /// Requests the Multi, and optionally each part's voice, collecting blocks
 /// until each footer arrives. `progress` receives (messagesSoFar).
+///
+/// `report`, if given, is filled with what each request actually produced --
+/// including SysEx that arrived but was not a bulk block, which is otherwise
+/// discarded silently. A capture that comes back short is only diagnosable if
+/// we can tell "the rack never sent it" from "it arrived and we dropped it".
 [[nodiscard]] std::optional<State> captureState(
     Device&, std::function<void(int)> progress = {},
     std::chrono::milliseconds quietTime = std::chrono::milliseconds{700},
-    CaptureScope scope = CaptureScope::WithVoices);
+    CaptureScope scope = CaptureScope::WithVoices,
+    std::string* report = nullptr);
 
 /// Sends the captured blocks back.
 ///
