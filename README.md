@@ -136,6 +136,21 @@ Auto-connects to MOTIF-RACK XS Port1 and reads the rack's live state.
 ./build/motifxs dump-state                 # read the live edit buffer
 ```
 
+## Single and Multi
+
+The rack is always in Multi mode. That is not a setting this editor changes: the
+edit buffers are addressed per part, and capture and restore work on the whole
+Multi, so all sixteen parts are always there and always saved with the project.
+
+What the SINGLE / MULTI button changes is how much of that you have to look at.
+One sound, one controller, one track is the normal case, and it does not need a
+sixteen-part strip on screen -- so SINGLE, the default, hides the strip and the
+window shows only the part being played. Press it for MULTI when you want to
+move between parts; the choice is remembered.
+
+Automation is unaffected. The host's `part` parameter still selects the part in
+either mode, so a project that automates it keeps working with the strip hidden.
+
 ## One client at a time
 
 **Only one of the app, the plugin or the CLI may talk to the rack at once.**

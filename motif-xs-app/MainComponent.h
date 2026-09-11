@@ -137,6 +137,14 @@ private:
     juce::Label statusLabel_, deviceLabel_;
 
     // parts
+    /// The rack is always in Multi mode -- that is how its edit buffers work
+    /// and it is what we capture and restore. But playing one sound from one
+    /// controller on one track does not need sixteen parts on screen, so by
+    /// default the UI shows only the part being played and the strip that
+    /// chooses between them is put away until Multi is asked for.
+    juce::TextButton modeButton_{"SINGLE"};
+    bool singleMode_{true};
+    void setSingleMode(bool);
     std::array<std::unique_ptr<juce::TextButton>, 16> partButtons_;
     std::array<juce::String, 16> partVoiceNames_;
     int part_{0};

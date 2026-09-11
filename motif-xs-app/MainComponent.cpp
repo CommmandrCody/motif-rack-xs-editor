@@ -74,6 +74,11 @@ MainComponent::MainComponent(DeviceWorker& worker, AudioTap* tap)
     deviceLabel_.setJustificationType(juce::Justification::centredRight);
     addAndMakeVisible(deviceLabel_);
 
+    modeButton_.setTooltip("SINGLE shows just the part you play; MULTI shows all sixteen. "
+                           "The rack stays in Multi either way.");
+    modeButton_.onClick = [this] { setSingleMode(!singleMode_); };
+    addAndMakeVisible(modeButton_);
+
     for (int i = 0; i < 16; ++i) {
         auto b = std::make_unique<juce::TextButton>(juce::String(i + 1));
         b->setClickingTogglesState(false);
@@ -494,6 +499,19 @@ void MainComponent::loadState() {
     });
 }
 
+void MainComponent::setSingleMode(bool single) {
+    singleMode_ = single;
+    modeButton_.setButtonText(single ? "SINGLE" : "MULTI");
+    modeButton_.setColour(juce::TextButton::buttonColourId,
+                          single ? theme::panelHi : theme::accent);
+    modeButton_.setColour(juce::TextButton::textColourOffId,
+                          single ? theme::text : juce::Colours::black);
+    for (auto& b : partButtons_) b->setVisible(!single);
+    saveSettings();
+    resized();
+    repaint();
+}
+
 void MainComponent::selectPart(int part) {
     stopAudition();
     part_ = juce::jlimit(0, 15, part);
@@ -657,6 +675,7 @@ void MainComponent::loadSettings() {
         for (int i = 0; i < thruBox_.getNumItems(); ++i)
             if (thruBox_.getItemText(i) == thru)
                 thruBox_.setSelectedItemIndex(i, juce::sendNotificationSync);
+    setSingleMode(settings_->getBoolValue("single", true));   // one voice until Multi is asked for
     selectPart(settings_->getIntValue("part", 0));
 }
 
@@ -667,6 +686,7 @@ void MainComponent::saveSettings() {
     // forever, and the app then auto-connects to something that cannot reply.
     if (worker_.isOpen()) settings_->setValue("port", portBox_.getText());
     settings_->setValue("part", part_);
+    settings_->setValue("single", singleMode_);
     settings_->setValue("tab", tabs_.getCurrentTabIndex());
     settings_->setValue("audition", auditionButton_.getToggleState());
     settings_->setValue("thru", thruBox_.getSelectedId() <= 1 ? juce::String()
@@ -862,17 +882,19 @@ void MainComponent::paint(juce::Graphics& g) {
     r.removeFromTop(kHeaderH);
 
     // part strip backdrop
-    auto strip = r.removeFromTop(kPartStripH).reduced(8, 2);
-    g.setColour(theme::panel);
-    g.fillRoundedRectangle(strip.toFloat(), 5.0f);
+    if (!singleMode_) {
+        auto strip = r.removeFromTop(kPartStripH).reduced(8, 2);
+        g.setColour(theme::panel);
+        g.fillRoundedRectangle(strip.toFloat(), 5.0f);
+    }
 
     // selected part's voice name, the thing the eye should land on
     auto header = r.removeFromTop(kNameRowH).reduced(10, 1);
     header.removeFromRight(440);   // room for the arp controls
     g.setColour(theme::dim);
     g.setFont(theme::panelFont(11.0f));
-    g.drawText("PART " + juce::String(part_ + 1), header.removeFromLeft(60),
-               juce::Justification::centredLeft);
+    g.drawText(singleMode_ ? juce::String("VOICE") : "PART " + juce::String(part_ + 1),
+               header.removeFromLeft(60), juce::Justification::centredLeft);
     g.setColour(theme::text);
     g.setFont(theme::panelFont(18.0f));
     g.drawText(partVoiceNames_[size_t(part_)].isEmpty() ? juce::String("--")
@@ -895,6 +917,8 @@ void MainComponent::resized() {
     top.removeFromLeft(8);
     panicButton_.setBounds(top.removeFromRight(62));
     top.removeFromRight(4);
+    modeButton_.setBounds(top.removeFromRight(58));
+    top.removeFromRight(4);
     loadButton_.setBounds(top.removeFromRight(50));
     top.removeFromRight(3);
     saveButton_.setBounds(top.removeFromRight(50));
@@ -906,10 +930,12 @@ void MainComponent::resized() {
     top.removeFromRight(6);
     statusLabel_.setBounds(top);
 
-    auto strip = r.removeFromTop(kPartStripH).reduced(10, 4);
-    const int bw = strip.getWidth() / 16;
-    for (int i = 0; i < 16; ++i)
-        partButtons_[size_t(i)]->setBounds(strip.removeFromLeft(bw).reduced(2));
+    if (!singleMode_) {
+        auto strip = r.removeFromTop(kPartStripH).reduced(10, 4);
+        const int bw = strip.getWidth() / 16;
+        for (int i = 0; i < 16; ++i)
+            partButtons_[size_t(i)]->setBounds(strip.removeFromLeft(bw).reduced(2));
+    }
 
     // voice-name header row: painted text on the left, arp controls on the right
     auto nameRow = r.removeFromTop(kNameRowH).reduced(10, 2);
