@@ -11,25 +11,7 @@ namespace {
 /// controls the rack's own knobs drive -- for the part the plugin is pointed
 /// at. Everything deeper stays plugin state, editable in the UI but not
 /// automatable, which matches how the hardware behaves.
-struct Macro {
-    const char* id;
-    const char* label;
-    const char* parameterId;   // motifxs parameter id
-};
-
-constexpr Macro kMacros[] = {
-    {"volume",  "Volume",      "multi_part_volume"},
-    {"pan",     "Pan",         "multi_part_pan"},
-    {"cutoff",  "Cutoff",      "multi_part_filter_cutoff_frequency"},
-    {"reso",    "Resonance",   "multi_part_filter_resonance_width"},
-    {"attack",  "Attack",      "multi_part_aeg_attack_time"},
-    {"decay",   "Decay",       "multi_part_aeg_decay_time"},
-    {"release", "Release",     "multi_part_aeg_release_time"},
-    {"reverb",  "Reverb Send", "multi_part_reverb_send"},
-    {"chorus",  "Chorus Send", "multi_part_chorus_send"},
-};
-
-constexpr int kNumMacros = int(std::size(kMacros));
+constexpr int kNumMacros = int(macros::kCount);
 
 /// How long the rack must be untouched before an automatic capture runs.
 /// Long enough not to fire between two knob turns, short enough that a project
@@ -46,8 +28,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout MotifXsProcessor::makeLayout
     layout.add(std::make_unique<juce::AudioParameterInt>(
         juce::ParameterID{"part", 1}, "Part", 1, 16, 1));
 
-    for (const auto& m : kMacros) {
-        const auto* p = findParameterById(m.parameterId);
+    for (const auto& m : macros::kAll) {
+        const auto* p = findParameterById(m.parameter);
         const int lo = p ? p->min : 0;
         const int hi = p && p->max > p->min ? p->max : 127;
         layout.add(std::make_unique<juce::AudioParameterFloat>(
@@ -166,7 +148,7 @@ void MotifXsProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
     // must not produce one SysEx per block.
     bool changed = false;
     for (int i = 0; i < kNumMacros; ++i) {
-        if (auto* p = apvts_.getRawParameterValue(kMacros[std::size_t(i)].id)) {
+        if (auto* p = apvts_.getRawParameterValue(macros::kAll[std::size_t(i)].id)) {
             const float v = p->load();
             if (lastPushed_[std::size_t(i)].exchange(v) != v) changed = true;
         }
@@ -215,9 +197,9 @@ void MotifXsProcessor::pushAutomationToDevice() {
     if (!automationDirty_.exchange(false)) return;
     const int part = int(apvts_.getRawParameterValue("part")->load()) - 1;
     for (int i = 0; i < kNumMacros; ++i) {
-        const auto* p = findParameterById(kMacros[std::size_t(i)].parameterId);
+        const auto* p = findParameterById(macros::kAll[std::size_t(i)].parameter);
         if (!p) continue;
-        if (auto* raw = apvts_.getRawParameterValue(kMacros[std::size_t(i)].id))
+        if (auto* raw = apvts_.getRawParameterValue(macros::kAll[std::size_t(i)].id))
             worker_->setParameter(*p, juce::jlimit(0, 15, part), int(raw->load()));
     }
 }

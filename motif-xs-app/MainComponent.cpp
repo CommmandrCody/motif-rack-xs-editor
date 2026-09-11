@@ -5,19 +5,6 @@ using namespace motifxs;
 namespace {
 /// PERFORM macros. All are Multi Part parameters, so they act as offsets on
 /// whatever voice the part holds -- the same thing the rack's own knobs do.
-struct KnobSpec { const char* label; const char* id; };
-constexpr KnobSpec kKnobs[] = {
-    {"VOLUME",    "multi_part_volume"},
-    {"PAN",       "multi_part_pan"},
-    {"CUTOFF",    "multi_part_filter_cutoff_frequency"},
-    {"RESO",      "multi_part_filter_resonance_width"},
-    {"ATTACK",    "multi_part_aeg_attack_time"},
-    {"DECAY",     "multi_part_aeg_decay_time"},
-    {"RELEASE",   "multi_part_aeg_release_time"},
-    {"REVERB",    "multi_part_reverb_send"},
-    {"CHORUS",    "multi_part_chorus_send"},
-};
-
 const Parameter* param(const char* id) { return findParameterById(id); }
 
 // Row heights. paint() and resized() carve up the same rectangle, so these live
@@ -255,9 +242,14 @@ MainComponent::MainComponent(DeviceWorker& worker, AudioTap* tap)
     addAndMakeVisible(arpHold_);
 
     for (size_t i = 0; i < knobs_.size(); ++i) {
-        auto k = std::make_unique<ParamKnob>(kKnobs[i].label, kKnobs[i].id);
+        auto k = std::make_unique<ParamKnob>(macros::kAll[i].shortLabel,
+                                             macros::kAll[i].parameter);
         auto* raw = k.get();
-        raw->slider().onValueChange = [this, raw] { pushKnob(*raw); };
+        raw->slider().onValueChange = [this, raw, i] {
+            pushKnob(*raw);
+            // Tell the host too, or a knob turned here records no automation.
+            if (!macroSync_ && onMacroChanged) onMacroChanged(int(i), raw->raw());
+        };
         addAndMakeVisible(*k);
         knobs_[i] = std::move(k);
     }
@@ -817,6 +809,16 @@ void MainComponent::pullDrumKey(int ee) {
             juce::MessageManager::callAsync([this, p, raw] { drums_.setValue(*p, raw); });
         }
     });
+}
+
+void MainComponent::setMacroValue(int index, int raw) {
+    if (index < 0 || index >= int(macros::kCount)) return;
+    auto& k = knobs_[std::size_t(index)];
+    if (!k) return;
+    // Display only: whoever moved the host parameter has already sent it to the
+    // rack, so re-sending here would be a second write of the same value.
+    const juce::ScopedValueSetter<bool> guard(macroSync_, true);
+    k->setRaw(raw);
 }
 
 void MainComponent::pushKnob(ParamKnob& k) {

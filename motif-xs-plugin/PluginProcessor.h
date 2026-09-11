@@ -7,6 +7,7 @@
 #include "motifxs/worker.hpp"
 
 #include "AudioScope.h"
+#include "Macros.h"
 
 /// The rack is the sound engine; this plugin is a controller that happens to
 /// live in a DAW track.

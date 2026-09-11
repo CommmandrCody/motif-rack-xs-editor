@@ -14,6 +14,7 @@
 #include "Browsers.h"
 #include "DrumEditor.h"
 #include "AudioScope.h"
+#include "Macros.h"
 #include "ElementEditor.h"
 #include "Theme.h"
 
@@ -98,6 +99,16 @@ public:
     /// keep the host parameter in step.
     std::function<void(int)> onPartChanged;
 
+    /// Fired when the user moves a PERFORM knob here, so the plugin can move
+    /// the matching host parameter -- otherwise turning a knob in the editor
+    /// writes no automation.
+    std::function<void(int, int)> onMacroChanged;   // (index, raw value)
+
+    /// Sets a PERFORM knob from outside, without reporting it back as an edit.
+    /// This is how a hardware controller mapped to a host parameter shows up in
+    /// the editor.
+    void setMacroValue(int index, int raw);
+
     void paint(juce::Graphics&) override;
     void resized() override;
 
@@ -179,7 +190,8 @@ private:
     void loadSettings();
     void saveSettings();
 
-    std::array<std::unique_ptr<ParamKnob>, 9> knobs_;
+    std::array<std::unique_ptr<ParamKnob>, macros::kCount> knobs_;
+    bool macroSync_{false};
 
     std::atomic<bool> dirty_{false};
     juce::String pendingStatus_;

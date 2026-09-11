@@ -48,10 +48,24 @@ MotifXsEditor::MotifXsEditor(MotifXsProcessor& p)
         }
     };
     processor_.apvts().addParameterListener("part", this);
+
+    // The editor knobs and the host parameters address the same rack
+    // parameter. Without this they were simply two unconnected paths: a knob
+    // mapped to Push moved the rack while the editor sat still, and a knob
+    // turned here wrote no automation.
+    ui_.onMacroChanged = [this](int index, int raw) {
+        if (syncing_ || index < 0 || index >= int(macros::kCount)) return;
+        if (auto* p = processor_.apvts().getParameter(macros::kAll[std::size_t(index)].id)) {
+            const juce::ScopedValueSetter<bool> guard(syncing_, true);
+            p->setValueNotifyingHost(p->convertTo0to1(float(raw)));
+        }
+    };
+    for (const auto& m : macros::kAll) processor_.apvts().addParameterListener(m.id, this);
     if (auto* raw = processor_.apvts().getRawParameterValue("part")) {
         const juce::ScopedValueSetter<bool> guard(syncing_, true);
         ui_.setPart(int(raw->load()) - 1);
     }
+    syncFromHost();
 
     // Relays the rack's arpeggiator into the track as note events, so the
     // phrase can be recorded without an IAC bus in the middle.
@@ -90,12 +104,36 @@ void MotifXsEditor::timerCallback() {
 MotifXsEditor::~MotifXsEditor() {
     stopTimer();
     processor_.apvts().removeParameterListener("part", this);
+    for (const auto& m : macros::kAll) processor_.apvts().removeParameterListener(m.id, this);
     ui_.onPartChanged = nullptr;
+    ui_.onMacroChanged = nullptr;
     setLookAndFeel(nullptr);
 }
 
+void MotifXsEditor::syncFromHost() {
+    const juce::ScopedValueSetter<bool> guard(syncing_, true);
+    for (std::size_t i = 0; i < macros::kCount; ++i)
+        if (auto* raw = processor_.apvts().getRawParameterValue(macros::kAll[i].id))
+            ui_.setMacroValue(int(i), int(raw->load()));
+}
+
 void MotifXsEditor::parameterChanged(const juce::String& id, float value) {
-    if (id != "part" || syncing_) return;
+    if (syncing_) return;
+
+    // A macro moved in the host -- Push, a control surface, or automation
+    // playing back. Show it.
+    for (std::size_t i = 0; i < macros::kCount; ++i) {
+        if (id != macros::kAll[i].id) continue;
+        const int index = int(i);
+        const int raw = int(value);
+        juce::MessageManager::callAsync([this, index, raw] {
+            const juce::ScopedValueSetter<bool> guard(syncing_, true);
+            ui_.setMacroValue(index, raw);
+        });
+        return;
+    }
+
+    if (id != "part") return;
     // Automation arrives on the host's thread; touching the UI needs the
     // message thread.
     juce::MessageManager::callAsync([this, value] {

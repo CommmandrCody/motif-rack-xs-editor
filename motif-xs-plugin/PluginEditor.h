@@ -20,6 +20,9 @@ private:
     /// Keeps the part strip and the automatable "part" parameter in step,
     /// in both directions, without letting them chase each other.
     void parameterChanged(const juce::String& id, float value) override;
+    /// Pushes every host parameter into the editor once, so a freshly opened
+    /// window agrees with whatever the controller has already moved.
+    void syncFromHost();
     /// Keeps the state readout honest about whether a save right now would
     /// bring the rack back.
     void timerCallback() override;
