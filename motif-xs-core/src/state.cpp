@@ -185,10 +185,36 @@ std::string voiceName(const State& s) {
     return {};
 }
 
+bool voiceIsDrum(const State& s) {
+    for (const auto& m : s.messages) {
+        const auto b = parseBulkDump(m);
+        if (b && (b->address.high == 0x46 || b->address.high == 0x47)) return true;
+    }
+    return false;
+}
+
+namespace {
+
+/// Puts a part onto a voice of the right *kind* so the bulk that follows is
+/// accepted. Any patch of that kind will do -- the bulk replaces its contents
+/// entirely; this only establishes the type of edit buffer the rack allocates.
+void ensureVoiceType(Device& device, int part, bool drum) {
+    if (drum) device.selectVoice(63, 32, 0, std::uint8_t(part));   // drum preset
+    else device.selectVoice(63, 0, 0, std::uint8_t(part));          // PRE1
+    std::this_thread::sleep_for(std::chrono::milliseconds{450});
+}
+
+}  // namespace
+
 bool applyVoice(Device& device, const State& voice, int targetPart,
                 std::chrono::milliseconds interBlockDelay) {
     if (!device.isOpen() || voice.messages.empty()) return false;
     if (targetPart < 0 || targetPart >= kParts) return false;
+
+    // The target part may be holding the other kind of voice entirely, in
+    // which case every block below would be rejected -- silently, since bulk
+    // writes are never acknowledged.
+    ensureVoiceType(device, targetPart, voiceIsDrum(voice));
 
     for (const auto& original : voice.messages) {
         Bytes m = original;
@@ -207,23 +233,55 @@ bool applyVoice(Device& device, const State& voice, int targetPart,
         device.send(m);
         std::this_thread::sleep_for(interBlockDelay);
     }
-    return true;
+
+    // Bulk writes are not acknowledged, so the only way to know it landed is to
+    // read the voice back. Returning true regardless is how a rejected apply
+    // looked like a successful one.
+    std::this_thread::sleep_for(std::chrono::milliseconds{250});
+    const std::string wanted = voiceName(voice);
+    const std::uint8_t nameBlock = voiceIsDrum(voice) ? 0x46 : 0x40;
+    std::string got;
+    for (int i = 0; i < 20; ++i) {
+        auto b = device.readAddress({nameBlock, 0x00, std::uint8_t(i)});
+        if (!b || b->empty()) break;
+        const char ch = char((*b)[0]);
+        if (ch >= 32 && ch < 127) got.push_back(ch);
+    }
+    while (!got.empty() && got.back() == ' ') got.pop_back();
+    return !wanted.empty() && got == wanted;
 }
 
 bool restoreState(Device& device, const State& state,
                   std::function<void(int, int)> progress,
-                  std::chrono::milliseconds interBlockDelay) {
+                  std::chrono::milliseconds interBlockDelay,
+                  std::chrono::milliseconds settleAfterSequence) {  // after the Multi
     if (!device.isOpen() || state.messages.empty()) return false;
 
     const int total = int(state.messages.size());
     for (int i = 0; i < total; ++i) {
         Bytes m = state.messages[std::size_t(i)];
         // Re-stamp the device number: a state file may have come from a rack
-        // set to a different one.
+        // set to a different one. Byte 2 is outside the checksummed range, so
+        // this does not invalidate the message.
         if (m.size() > 2) m[2] = std::uint8_t((m[2] & 0xF0) | (device.deviceNumber() & 0x0F));
         device.send(m);
         if (progress) progress(i + 1, total);
-        std::this_thread::sleep_for(interBlockDelay);
+
+        // A Bulk Footer ends a sequence. The Multi's footer is the one that
+        // matters: restoring it issued a bank select and program change for all
+        // sixteen parts, and the rack is still loading those voices. Start
+        // pushing voice blocks before that finishes and they land at parts
+        // still holding the previous voice -- wrong type, rejected, and the
+        // restore silently half-applies. A voice footer only swaps one edit
+        // buffer and needs far less.
+        const auto parsed = parseBulkDump(m);
+        if (parsed && parsed->address.high == 0x0F) {
+            const bool wasMulti = parsed->address.mid == kMultiEditBufferFooter.mid;
+            std::this_thread::sleep_for(wasMulti ? settleAfterSequence
+                                                 : std::chrono::milliseconds{90});
+        } else {
+            std::this_thread::sleep_for(interBlockDelay);
+        }
     }
     return true;
 }

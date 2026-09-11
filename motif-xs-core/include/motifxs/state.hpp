@@ -73,11 +73,20 @@ enum class CaptureScope {
     std::chrono::milliseconds quietTime = std::chrono::milliseconds{700},
     CaptureScope scope = CaptureScope::WithVoices);
 
-/// Sends the captured blocks back. `interBlockDelay` honours the rack's Bulk
-/// Interval setting (00 00 1F); too fast and blocks are dropped silently.
+/// Sends the captured blocks back.
+///
+/// Two different waits matter here. `interBlockDelay` honours the rack's Bulk
+/// Interval (`00 00 1F`); too fast and blocks are dropped silently.
+/// `settleAfterMulti` is much longer, because
+/// restoring the Multi issues a bank select and program change for all sixteen
+/// parts and the rack then has to *load* those voices. Push a Normal Voice
+/// element block at a part still holding a drum kit and the rack rejects it
+/// with "illegal bulk data" on its display -- and the restore is left
+/// half-applied.
 bool restoreState(Device&, const State&,
                   std::function<void(int, int)> progress = {},
-                  std::chrono::milliseconds interBlockDelay = std::chrono::milliseconds{15});
+                  std::chrono::milliseconds interBlockDelay = std::chrono::milliseconds{20},
+                  std::chrono::milliseconds settleAfterMulti = std::chrono::milliseconds{1200});
 
 /// Captures one part's voice: Common plus all eight Elements for a Normal
 /// Voice, or Common plus the 73 keys for a Drum Voice. About 2 kB.
@@ -90,6 +99,8 @@ bool restoreState(Device&, const State&,
     std::chrono::milliseconds quietTime = std::chrono::milliseconds{400});
 
 /// Applies a captured voice to a part, which need not be the part it came from.
+/// Returns whether it actually landed, verified by reading the voice name back:
+/// bulk writes are never acknowledged, so sending is not the same as applying.
 ///
 /// The part lives in the low byte of the Bulk Header and Footer, so those are
 /// re-addressed and their checksums recomputed; the blocks between carry no
@@ -101,6 +112,12 @@ bool applyVoice(Device&, const State&, int targetPart,
 
 /// The voice name held in a captured voice, read from its Common block.
 [[nodiscard]] std::string voiceName(const State&);
+
+/// True if a captured voice is a Drum Voice (46/47 blocks) rather than a
+/// Normal Voice (40/41/42). The rack will not accept one in place of the
+/// other: push Normal Voice element blocks at a part holding a drum kit and it
+/// rejects the lot with "illegal bulk data" on its display.
+[[nodiscard]] bool voiceIsDrum(const State&);
 
 /// Text serialisation: a small header then one hex line per SysEx message.
 /// Chosen over binary so a saved state can be read, diffed and pasted into a

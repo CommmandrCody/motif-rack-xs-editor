@@ -167,6 +167,33 @@ the edit, on a different part.
 `motifxs voice-save <part> <file>` / `voice-load <part> <file>`, and
 **SAVE PATCH** / **LOAD PATCH** in the app.
 
+### Restoring has an order and a pace
+
+**[verified]** Two things will make a restore fail, both silently, because bulk
+writes are never acknowledged:
+
+* **Voice type must match the part.** Push Normal Voice blocks (`40/41/42`) at a
+  part holding a drum kit, or the reverse, and the rack rejects the lot and
+  shows **"illegal bulk data"**. Tested directly: a captured Normal voice
+  applied to a part holding a drum kit changed nothing at all, while the call
+  reported success.
+* **The Multi needs time to land first.** Restoring the Multi issues a bank
+  select and program change for all sixteen parts, and the rack then has to
+  *load* those voices. Start pushing voice blocks 15 ms later and they arrive at
+  parts still holding the previous voice -- wrong type, rejected, restore
+  half-applied. The Multi footer is followed by a long settle (1.2 s); a voice
+  footer only swaps one edit buffer and needs about 90 ms.
+
+`applyVoice` now sets the part to a voice of the right *kind* before sending
+(any patch of that kind will do -- the bulk replaces its contents), and verifies
+afterwards by reading the voice name back. It used to return success whether or
+not anything landed.
+
+A consequence worth knowing: after applying a custom patch, a part's bank and
+program no longer describe what is loaded, exactly as when a voice is edited on
+the rack. The part strip shows the stored reference; the edit buffer holds the
+truth.
+
 Capturing verbatim beats a curated parameter list: nothing is quietly omitted,
 and it restores as the same blocks, so the ordering hazard below does not
 arise. Restoring sends the blocks back with a small inter-block delay
