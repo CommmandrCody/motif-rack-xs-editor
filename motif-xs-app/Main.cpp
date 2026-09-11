@@ -33,6 +33,16 @@ public:
     }
     double tapSampleRate() const override { return rate_.load(); }
 
+    juce::String tapStatus() override {
+        if (!active_.load())
+            return "No audio input is open.\nChoose the interface input the rack "
+                   "is plugged into, and allow microphone access when macOS asks.";
+        if (!everSaw_.load())
+            return "Input open, but nothing has come through it yet.\n"
+                   "Check this is the input the rack is plugged into.";
+        return {};
+    }
+
     juce::StringArray inputDevices() override {
         juce::StringArray names;
         for (auto* type : manager_.getAvailableDeviceTypes()) {
@@ -74,7 +84,9 @@ private:
             int used = 0;
             for (int ch = 0; ch < numIn; ++ch)
                 if (in[ch] != nullptr) { sum += in[ch][i]; ++used; }
-            ring_[std::size_t(w)] = used ? sum / float(used) : 0.0f;
+            const float v = used ? sum / float(used) : 0.0f;
+            if (std::abs(v) > 1.0e-5f) everSaw_.store(true);
+            ring_[std::size_t(w)] = v;
             w = (w + 1) & (kSize - 1);
         }
         write_.store(w, std::memory_order_release);
@@ -86,6 +98,7 @@ private:
     std::atomic<int> write_{0};
     std::atomic<double> rate_{48000.0};
     std::atomic<bool> active_{false};
+    std::atomic<bool> everSaw_{false};
 };
 
 class MotifXsApplication : public juce::JUCEApplication {

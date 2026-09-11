@@ -27,7 +27,16 @@ public:
 
     void prepareToPlay(double sampleRate, int) override { sampleRate_.store(sampleRate); }
     void releaseResources() override {}
-    bool isBusesLayoutSupported(const BusesLayout&) const override { return true; }
+    /// Accepting any layout at all lets a host instantiate this with no input
+    /// bus, after which no audio ever reaches processBlock and the scope has
+    /// nothing to draw with no way to say why.
+    bool isBusesLayoutSupported(const BusesLayout& layouts) const override {
+        const auto out = layouts.getMainOutputChannelSet();
+        if (out != juce::AudioChannelSet::mono() && out != juce::AudioChannelSet::stereo())
+            return false;
+        const auto in = layouts.getMainInputChannelSet();
+        return in.isDisabled() || in == out;
+    }
 
     /// Silent passthrough. Nothing here may allocate, lock or send: automation
     /// is pushed into a lock-free queue and the worker thread does the MIDI.
@@ -62,6 +71,7 @@ public:
     /// AudioTap: recent mono samples for the scope.
     int readRecent(float* dest, int count) override;
     double tapSampleRate() const override { return sampleRate_.load(); }
+    juce::String tapStatus() override;
     juce::AudioProcessorValueTreeState& apvts() { return apvts_; }
 
     /// True while the rack's arpeggiator is being relayed to the host.
@@ -126,6 +136,8 @@ private:
     std::array<float, kScopeSize> scopeRing_{};
     std::atomic<int> scopeWrite_{0};
     std::atomic<double> sampleRate_{48000.0};
+    std::atomic<int> inputChannels_{0};
+    std::atomic<bool> everSawSignal_{false};
     std::atomic<bool> capturing_{false};
     std::uint64_t lastSeenChange_{0};
     std::uint64_t capturedAtChange_{0};

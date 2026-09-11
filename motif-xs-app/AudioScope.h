@@ -25,6 +25,11 @@ struct AudioTap {
     /// Optional: lets the page choose which input to listen to. Without this a
     /// tap is stuck on whatever the system default is, which is usually the
     /// built-in microphone rather than the interface the rack is plugged into.
+    /// Why the scope is showing nothing, in words. "No signal" and "this track
+    /// never sends me any audio" look identical on a flat line, and they have
+    /// completely different fixes.
+    virtual juce::String tapStatus() { return {}; }
+
     virtual juce::StringArray inputDevices() { return {}; }
     virtual juce::String currentInputDevice() { return {}; }
     virtual void setInputDevice(const juce::String&) {}
@@ -159,10 +164,17 @@ private:
         g.setColour(theme::dim);
         g.setFont(juce::FontOptions(10.0f));
         g.drawText("WAVEFORM", area.reduced(6), juce::Justification::topLeft);
+        const juce::String status = tap_ != nullptr ? tap_->tapStatus() : juce::String();
         g.drawText(peak_ > 0.0001f
                        ? juce::String(juce::Decibels::gainToDecibels(peak_), 1) + " dB peak"
-                       : juce::String("silent"),
+                       : (status.isNotEmpty() ? status : juce::String("silent")),
                    area.reduced(6), juce::Justification::topRight);
+
+        if (peak_ <= 0.0001f && status.isNotEmpty()) {
+            g.setColour(theme::warn);
+            g.setFont(juce::FontOptions(12.0f));
+            g.drawText(status, area, juce::Justification::centred, true);
+        }
     }
 
     void drawSpectrum(juce::Graphics& g, juce::Rectangle<int> area) {

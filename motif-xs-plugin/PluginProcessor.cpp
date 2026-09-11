@@ -124,16 +124,22 @@ void MotifXsProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
     midi.clear();
 
     // Tap a mono sum for the scope. Cheap, and never allocates or locks.
-    if (const int numSamples = buffer.getNumSamples(); numSamples > 0) {
-        const int channels = juce::jmax(1, buffer.getNumChannels());
+    const int inCh = getTotalNumInputChannels();
+    inputChannels_.store(inCh);
+    if (const int numSamples = buffer.getNumSamples(); numSamples > 0 && inCh > 0) {
+        const int channels = juce::jmin(inCh, buffer.getNumChannels());
         int w = scopeWrite_.load(std::memory_order_relaxed);
+        float blockPeak = 0.0f;
         for (int i = 0; i < numSamples; ++i) {
             float sum = 0.0f;
             for (int ch = 0; ch < channels; ++ch) sum += buffer.getReadPointer(ch)[i];
-            scopeRing_[std::size_t(w)] = sum / float(channels);
+            const float v = channels > 0 ? sum / float(channels) : 0.0f;
+            scopeRing_[std::size_t(w)] = v;
+            blockPeak = juce::jmax(blockPeak, std::abs(v));
             w = (w + 1) & (kScopeSize - 1);
         }
         scopeWrite_.store(w, std::memory_order_release);
+        if (blockPeak > 1.0e-5f) everSawSignal_.store(true);
     }
 
     // Relay whatever the rack's arpeggiator sent since the last block. These
@@ -225,6 +231,16 @@ int MotifXsProcessor::readRecent(float* dest, int count) {
     // pad the front if fewer were asked for than the caller's buffer
     for (int i = n; i < count; ++i) dest[i] = 0.0f;
     return n;
+}
+
+juce::String MotifXsProcessor::tapStatus() {
+    if (inputChannels_.load() <= 0)
+        return "This track sends no audio to the plugin.\n"
+               "Put it after an External Instrument device, or on the audio "
+               "track the rack returns on.";
+    if (!everSawSignal_.load())
+        return "Audio bus connected, but nothing has come through it yet.";
+    return {};
 }
 
 juce::AudioProcessorEditor* MotifXsProcessor::createEditor() {
