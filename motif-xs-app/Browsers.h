@@ -49,6 +49,17 @@ public:
         bank_.onChange = [this] { rebuild(); };
         addAndMakeVisible(bank_);
 
+        // 65 drum kits sitting in the voice list are 65 rows you almost never
+        // want: the DRUM tab is where a kit gets played and edited. Off by
+        // default, one click away when a part really should be a kit.
+        showDrums_.setClickingTogglesState(true);
+        showDrums_.setButtonText("kits");
+        showDrums_.setTooltip("Show drum kits among the voices");
+        showDrums_.setColour(juce::TextButton::buttonOnColourId, theme::accent);
+        showDrums_.setColour(juce::TextButton::textColourOnId, juce::Colours::black);
+        showDrums_.onClick = [this] { rebuild(); };
+        addAndMakeVisible(showDrums_);
+
         expandAll_.setButtonText("expand all");
         expandAll_.onClick = [this] {
             const bool anyClosed = std::any_of(open_.begin(), open_.end(),
@@ -79,6 +90,7 @@ public:
         auto top = r.removeFromTop(26);
         bank_.setBounds(top.removeFromRight(104).reduced(1));
         expandAll_.setBounds(top.removeFromRight(94).reduced(1));
+        showDrums_.setBounds(top.removeFromRight(46).reduced(1));
         search_.setBounds(top.reduced(1));
         r.removeFromTop(4);
         list_.setBounds(r);
@@ -88,6 +100,10 @@ public:
     void selectByProgram(int msb, int lsb, int program) {
         for (const auto& v : motifxs::allVoices())
             if (v.msb == msb && v.lsb == lsb && v.program == program) {
+                // A part that is genuinely on a kit has to be able to show it,
+                // whatever the filter says.
+                if (v.kind == motifxs::VoiceKind::Drum && !showDrums_.getToggleState())
+                    showDrums_.setToggleState(true, juce::dontSendNotification);
                 open_[std::string(v.categoryMain)] = true;
                 rebuild();
                 break;
@@ -120,7 +136,9 @@ private:
         // group in catalog order so categories stay in Yamaha's ordering
         std::vector<std::string> order;
         std::map<std::string, std::vector<const motifxs::Voice*>> groups;
+        const bool drums = showDrums_.getToggleState();
         for (const auto& v : motifxs::allVoices()) {
+            if (!drums && v.kind == motifxs::VoiceKind::Drum) continue;
             if (bank.isNotEmpty() && juce::String(std::string(v.bank)) != bank) continue;
             if (query.isNotEmpty()) {
                 const auto name = juce::String(std::string(v.name)).toLowerCase();
@@ -242,6 +260,7 @@ private:
     SearchBox search_;
     juce::ComboBox bank_;
     juce::TextButton expandAll_;
+    juce::TextButton showDrums_;
     juce::ListBox list_;
     std::vector<Row> rows_;
     std::map<std::string, bool> open_;

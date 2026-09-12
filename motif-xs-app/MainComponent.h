@@ -191,7 +191,13 @@ private:
     int auditionNote_{60};
     void audition();
     void stopAudition();
+    // What is actually sounding, which is not the same as what is selected.
+    // Picking a drum key or another part moves auditionNote_/part_ before the
+    // note-off is sent, and a note-off for the new note leaves the old one on
+    // until PANIC.
     bool auditionSounding_{false};
+    int soundingNote_{-1};
+    int soundingChannel_{-1};
 
     bool retriedAuto_{false};
     /// Set when the rack refused us because another client holds it. The other

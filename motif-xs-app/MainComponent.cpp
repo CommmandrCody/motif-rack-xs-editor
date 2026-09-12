@@ -643,17 +643,30 @@ void MainComponent::audition() {
         d.send(on);
     });
     auditionSounding_ = true;
-    juce::Timer::callAfterDelay(900, [this] { stopAudition(); });
+    soundingNote_ = note;
+    soundingChannel_ = ch;
+    // SafePointer: the window can be closed inside this 900 ms, and in the
+    // plugin that happens every time the editor is hidden.
+    juce::Component::SafePointer<MainComponent> safe(this);
+    juce::Timer::callAfterDelay(900, [safe] {
+        if (safe != nullptr) safe->stopAudition();
+    });
 }
 
 void MainComponent::stopAudition() {
-    if (!auditionSounding_ || !worker_.isOpen()) return;
+    if (!auditionSounding_ || soundingNote_ < 0) return;
     auditionSounding_ = false;
-    const std::uint8_t ch = std::uint8_t(part_ & 0x0F);
-    const std::uint8_t note = std::uint8_t(auditionNote_);
+    const std::uint8_t ch = std::uint8_t(soundingChannel_ & 0x0F);
+    const std::uint8_t note = std::uint8_t(soundingNote_);
+    soundingNote_ = soundingChannel_ = -1;
+    if (!worker_.isOpen()) return;
     worker_.post([ch, note](Device& d) {
         const Bytes off{std::uint8_t(0x80 | ch), note, 0};
         d.send(off);
+        // The rack ignores a note-off for a note it does not think is on, so
+        // this costs nothing and cleans up anything an earlier mismatch left
+        // sounding on this channel.
+        d.send(Bytes{std::uint8_t(0xB0 | ch), 123, 0});
     });
 }
 
