@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstring>
 #include <optional>
+#include <random>
 #include <string>
 #include <thread>
 #include <vector>
@@ -42,6 +43,8 @@ int usage() {
         "  motifxs save <file> [note]            capture the whole Multi to a file\n"
         "  motifxs load <file>                   restore a captured Multi\n"
         "  motifxs show <file>                   describe a saved state file\n"
+        "  motifxs soak [rounds]                 stress test: random patches and edits,\n"
+        "                                        every change verified by reading it back\n"
         "  motifxs voice-save <part> <file>      save one part's voice as a custom patch\n"
         "  motifxs voice-load <part> <file>      apply a custom patch to a part\n"
         "  motifxs panic                         all notes off, arpeggiators off\n"
@@ -534,6 +537,213 @@ int cmdDumpState() {
     return 0;
 }
 
+
+// ---------------------------------------------------------------- soak test
+
+namespace {
+
+/// One captured-and-verified round of the soak test.
+struct SoakTally {
+    int rounds{}, writeChecks{}, writeFails{}, captures{}, captureFails{};
+    int restoreFails{}, driftBlocks{};
+};
+
+/// Compares two captures block by block, keyed on address, and names what
+/// differs. A capture taken straight after restoring the one before it should
+/// match it; anything else means a block did not survive the round trip.
+int compareCaptures(const State& before, const State& after, int showAtMost = 8) {
+    auto index = [](const State& s) {
+        std::vector<std::pair<Address, Bytes>> v;
+        for (const auto& m : s.messages)
+            if (const auto b = parseBulkDump(m))
+                if (b->address.high != 0x0E && b->address.high != 0x0F)
+                    v.push_back({b->address, b->data});
+        return v;
+    };
+    const auto a = index(before), c = index(after);
+    int differing = 0, shown = 0;
+    const std::size_t n = std::min(a.size(), c.size());
+    for (std::size_t i = 0; i < n; ++i) {
+        if (a[i].first.high == c[i].first.high && a[i].first.mid == c[i].first.mid &&
+            a[i].first.low == c[i].first.low && a[i].second == c[i].second)
+            continue;
+        ++differing;
+        if (shown++ < showAtMost)
+            std::printf("      block %02X %02X %02X differs\n", a[i].first.high,
+                        a[i].first.mid, a[i].first.low);
+    }
+    if (a.size() != c.size()) {
+        std::printf("      block count %zu -> %zu\n", a.size(), c.size());
+        differing += int(a.size() > c.size() ? a.size() - c.size() : c.size() - a.size());
+    }
+    return differing;
+}
+
+/// Writes a value, reads it back, and says whether the rack agreed.
+bool writeAndVerify(Device& d, const Parameter& p, int part, std::int32_t value,
+                    SoakTally& tally) {
+    d.writeParameter(p, value, part);
+    std::this_thread::sleep_for(std::chrono::milliseconds{60});
+    ++tally.writeChecks;
+    const auto got = d.readParameter(p, part, std::chrono::milliseconds{600});
+    if (got && *got == value) return true;
+    ++tally.writeFails;
+    std::printf("    MISMATCH %s part %d: wrote %d, read %s\n", p.id.data(), part + 1,
+                int(value), got ? std::to_string(*got).c_str() : "nothing");
+    return false;
+}
+
+}  // namespace
+
+int cmdSoak(int n, char** rest) {
+    int rounds = 5;
+    if (n > 0) rounds = std::max(1, std::atoi(rest[0]));
+
+    Device d;
+    DeviceInfo info;
+    if (!connectAndIdentify(d, &info)) return 1;
+
+    // The rack is about to be scribbled on. Put its current state somewhere
+    // recoverable before touching anything, and say where.
+    std::printf("capturing the current Multi first, so this is reversible...\n");
+    auto baseline = captureState(d);
+    if (!baseline) {
+        std::fprintf(stderr, "error: could not capture a complete Multi to fall back on\n");
+        return 1;
+    }
+    const std::string backup = std::string(std::getenv("HOME") ? std::getenv("HOME") : ".") +
+                               "/Library/Logs/MotifRackXS/soak-baseline.motifxs";
+    std::string err;
+    saveStateFile(*baseline, backup.c_str(), &err);
+    std::printf("  baseline: %s\n  (%s)\n\n", backup.c_str(), baseline->summary().c_str());
+
+    // Normal voices only: a random kit on a random part is a legitimate thing
+    // to do but makes the per-part voice buffers a different shape mid-run.
+    std::vector<const Voice*> pool;
+    for (const auto& v : allVoices())
+        if (v.kind == VoiceKind::Normal) pool.push_back(&v);
+
+    const char* knobs[] = {"multi_part_volume", "multi_part_pan", "multi_part_reverb_send",
+                           "multi_part_chorus_send", "multi_part_dry_level"};
+
+    std::mt19937 rng{std::random_device{}()};
+    SoakTally tally;
+    std::optional<State> previous;
+
+    for (int r = 1; r <= rounds; ++r) {
+        ++tally.rounds;
+        // Every other round, ask to open the already-open device. This is what
+        // the plugin did, and it used to build a second CoreMIDI client and
+        // connect the source again, so every packet arrived twice and bulk
+        // transfers came back spliced. It must be a no-op.
+        if (r % 2 == 1) {
+            std::string reopenErr;
+            if (!d.open(gPort, &reopenErr, "motifxs soak")) {
+                std::printf("  REOPEN FAILED: %s\n", reopenErr.c_str());
+                ++tally.restoreFails;
+            } else {
+                std::printf("  redundant open accepted (must not duplicate delivery)\n");
+            }
+        }
+
+        const int part = int(rng() % 16);
+        const Voice& v = *pool[rng() % pool.size()];
+        std::printf("round %d/%d: part %d <- %s %s\n", r, rounds, part + 1,
+                    std::string(v.bank).c_str(), std::string(v.name).c_str());
+
+        d.selectVoice(v.msb, v.lsb, v.program, std::uint8_t(part));
+        std::this_thread::sleep_for(std::chrono::milliseconds{250});
+
+        // The Multi's own record of the part has to agree with what was sent.
+        if (const auto* p = findParameterById("multi_part_bank_select"))
+            writeAndVerify(d, *p, part, v.msb, tally);
+        if (const auto* p = findParameterById("multi_part_bank_select_lsb"))
+            writeAndVerify(d, *p, part, v.lsb, tally);
+        if (const auto* p = findParameterById("multi_part_program_number"))
+            writeAndVerify(d, *p, part, v.program, tally);
+
+        // A few random edits, each one read back.
+        for (int i = 0; i < 3; ++i) {
+            const auto* p = findParameterById(knobs[rng() % (sizeof knobs / sizeof knobs[0])]);
+            if (!p) continue;
+            const auto lo = p->min, hi = p->max;
+            writeAndVerify(d, *p, part, lo + std::int32_t(rng() % std::uint32_t(hi - lo + 1)), tally);
+        }
+
+        // The failure this test exists for: a burst of patch changes, as fast
+        // as arrow-keying a voice list sends them, immediately before a bulk
+        // transfer. That is what left the rack still digesting program changes
+        // when the dump was requested, and the dump came back shredded.
+        const int burst = 12 + int(rng() % 12);
+        for (int i = 0; i < burst; ++i) {
+            const Voice& scanned = *pool[rng() % pool.size()];
+            d.selectVoice(scanned.msb, scanned.lsb, scanned.program, std::uint8_t(part));
+            std::this_thread::sleep_for(std::chrono::milliseconds{8});
+        }
+        std::printf("  burst of %d patch changes, then capture\n", burst);
+        // Put the round's actual voice back after the scan.
+        d.selectVoice(v.msb, v.lsb, v.program, std::uint8_t(part));
+        std::this_thread::sleep_for(std::chrono::milliseconds{250});
+
+        ++tally.captures;
+        std::string report;
+        auto shot = captureState(d, {}, std::chrono::milliseconds{700},
+                                 CaptureScope::WithVoices, &report);
+        if (!shot) {
+            ++tally.captureFails;
+            std::printf("  CAPTURE FAILED\n%s", report.c_str());
+            continue;
+        }
+        std::printf("  captured %s\n", shot->summary().c_str());
+
+        // Every other round, prove the round trip: put back what was just
+        // captured and capture again. The two should agree block for block.
+        if (r % 2 == 0) {
+            if (!restoreState(d, *shot)) {
+                ++tally.restoreFails;
+                std::printf("  RESTORE REFUSED\n");
+            } else {
+                std::this_thread::sleep_for(std::chrono::milliseconds{400});
+                auto again = captureState(d);
+                if (!again) {
+                    ++tally.captureFails;
+                    std::printf("  re-capture after restore FAILED\n");
+                } else {
+                    const int drift = compareCaptures(*shot, *again);
+                    tally.driftBlocks += drift;
+                    std::printf("  round trip: %s\n",
+                                drift == 0 ? "identical" : (std::to_string(drift) + " blocks differ").c_str());
+                }
+            }
+        }
+        previous = std::move(shot);
+    }
+
+    std::printf("\nputting the rack back the way it was...\n");
+    const bool back = restoreState(d, *baseline);
+    if (!back) ++tally.restoreFails;
+    std::this_thread::sleep_for(std::chrono::milliseconds{600});
+    int finalDrift = -1;
+    if (auto now = captureState(d)) finalDrift = compareCaptures(*baseline, *now);
+
+    std::printf("\n--- soak summary ---\n");
+    std::printf("  rounds           : %d\n", tally.rounds);
+    std::printf("  writes verified  : %d  (%d disagreed)\n", tally.writeChecks, tally.writeFails);
+    std::printf("  captures         : %d  (%d failed)\n", tally.captures, tally.captureFails);
+    std::printf("  restores refused : %d\n", tally.restoreFails);
+    std::printf("  round-trip drift : %d blocks\n", tally.driftBlocks);
+    std::printf("  restored to start: %s\n",
+                finalDrift == 0 ? "yes, identical"
+                                : (finalDrift < 0 ? "could not verify"
+                                                  : (std::to_string(finalDrift) + " blocks differ")).c_str());
+    const bool clean = tally.writeFails == 0 && tally.captureFails == 0 &&
+                       tally.restoreFails == 0 && tally.driftBlocks == 0 && finalDrift == 0;
+    std::printf("  result           : %s\n", clean ? "PASS" : "FAIL");
+    if (!clean)
+        std::printf("\nthe baseline is still at %s\n", backup.c_str());
+    return clean ? 0 : 1;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -551,6 +761,7 @@ int main(int argc, char** argv) {
     const int n = int(args.size()) - 1;
     char** rest = args.data() + 1;
 
+    if (cmd == "soak") return cmdSoak(n, rest);
     if (cmd == "list-midi") return cmdListMidi();
     if (cmd == "identify") return cmdIdentify();
     if (cmd == "status") return cmdStatus();

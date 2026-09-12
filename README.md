@@ -151,6 +151,26 @@ move between parts; the choice is remembered.
 Automation is unaffected. The host's `part` parameter still selects the part in
 either mode, so a project that automates it keeps working with the strip hidden.
 
+## Testing against the hardware
+
+Unit tests cover the encoding; the rack itself covers the rest. `motifxs soak`
+is the hardware test:
+
+```
+motifxs soak 10
+```
+
+Each round puts a random voice on a random part, makes random edits and reads
+every one of them back, fires a burst of a dozen or more patch changes as fast
+as arrow-keying a voice list sends them, then captures. Every other round it
+restores what it just captured and captures again -- two captures either agree
+block for block or the test names the blocks that drifted. It also asks to open
+the already-open device, which is what corrupted transfers before.
+
+It captures the current Multi before touching anything, writes it to
+`~/Library/Logs/MotifRackXS/soak-baseline.motifxs`, restores it at the end and
+verifies that too. If the run fails, that file is what puts the rack back.
+
 ## One client at a time
 
 **Only one of the app, the plugin or the CLI may talk to the rack at once.**
