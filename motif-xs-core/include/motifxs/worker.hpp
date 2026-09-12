@@ -77,6 +77,10 @@ private:
     std::atomic<bool> quit_{false};
     std::atomic<std::uint64_t> changes_{0};
     std::atomic<bool> open_{false};
+    /// An open takes a moment and runs on the worker thread, so isOpen() is
+    /// still false while one is in flight. Without this, several instances
+    /// asking at once each queue their own.
+    std::atomic<bool> opening_{false};
     std::chrono::milliseconds flush_{15};
 
     mutable std::mutex mutex_;

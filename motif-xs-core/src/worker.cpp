@@ -26,7 +26,17 @@ void DeviceWorker::post(std::function<void(Device&)> job) {
 void DeviceWorker::open(std::string portName,
                         std::function<void(bool, std::string, DeviceInfo)> done,
                         std::string clientName) {
+    if (opening_.exchange(true)) {
+        // One is already on its way; a second would only reopen what the first
+        // is about to hand us.
+        if (done) done(open_.load(), open_.load() ? "" : "already connecting", info());
+        return;
+    }
     post([this, portName, done, clientName](Device& d) {
+        struct Clear {
+            std::atomic<bool>& flag;
+            ~Clear() { flag.store(false); }
+        } clear{opening_};
         std::string err;
         if (!d.open(portName, &err, clientName)) {
             open_ = false;

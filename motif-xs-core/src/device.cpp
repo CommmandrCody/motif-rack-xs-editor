@@ -61,26 +61,41 @@ struct Device::Impl {
     std::uint64_t arrivals{0};
     std::function<void(const Bytes&)> listener;
 
-    ~Impl() {
+    ~Impl() { teardown(); }
+
+    /// Releases every CoreMIDI object. Leaving one behind means a later open
+    /// adds a second delivery path rather than replacing the first.
+    void teardown() {
+        if (in && source) MIDIPortDisconnectSource(in, source);
         if (in) MIDIPortDispose(in);
         if (out) MIDIPortDispose(out);
         if (client) MIDIClientDispose(client);
+        in = out = 0;
+        client = 0;
+        outPortRef = 0;
+        source = 0;
+        dest = 0;
+        port.clear();
+        std::lock_guard lock(mutex);
+        reassembler.reset();
+        inbox.clear();
     }
 
     void onPackets(const MIDIPacketList* list) {
         const MIDIPacket* p = &list->packet[0];
-        std::vector<Bytes> msgs;
         for (UInt32 i = 0; i < list->numPackets; ++i) {
             forwardChannelMessages({p->data, p->length});
-            msgs = reassembler.feed({p->data, p->length});
-            if (!msgs.empty()) {
-                std::lock_guard lock(mutex);
-                for (auto& m : msgs) {
-                    if (listener) listener(m);
-                    inbox.emplace_back(++arrivals, std::move(m));
-                }
-                cv.notify_all();
+            // The reassembler carries the partial message between packets, so
+            // it is state shared with anything else delivering here. Feeding it
+            // outside the lock is what turns two deliveries of the same packet
+            // into one spliced message twice the length of any real block.
+            std::lock_guard lock(mutex);
+            auto msgs = reassembler.feed({p->data, p->length});
+            for (auto& m : msgs) {
+                if (listener) listener(m);
+                inbox.emplace_back(++arrivals, std::move(m));
             }
+            if (!msgs.empty()) cv.notify_all();
             p = MIDIPacketNext(p);
         }
     }
@@ -173,6 +188,19 @@ bool Device::open(const std::string& wanted, std::string* error,
         return false;
     };
 
+    // Opening an already-open device used to build a second CoreMIDI client and
+    // connect the source again while the first connection was still live. Every
+    // packet then arrived twice, and the rack lock did not catch it because a
+    // lock already held by this process is granted again. The duplicate stream
+    // is what shredded bulk transfers -- two deliveries of the same packet
+    // feeding one reassembler produce messages spliced together at twice the
+    // length of anything the rack sends.
+    if (isOpen()) {
+        if (wanted.empty() || wanted == impl_->port) return true;
+        close();
+    }
+    impl_->teardown();
+
     // One client at a time. CoreMIDI merges every client's output to a
     // destination, so a second one's Parameter Requests land inside this one's
     // bulk transfers and the rack rejects them.
@@ -213,14 +241,19 @@ bool Device::open(const std::string& wanted, std::string* error,
     }
 
     Impl* self = impl_.get();
+    auto giveUp = [&](const char* m) {
+        impl_->teardown();
+        impl_->lock.release();
+        return fail(m);
+    };
     if (MIDIInputPortCreateWithBlock(
             impl_->client, CFSTR("in"), &impl_->in,
             ^(const MIDIPacketList* list, void*) { self->onPackets(list); }) != noErr)
-        return fail("could not create the MIDI input port");
+        return giveUp("could not create the MIDI input port");
     if (MIDIOutputPortCreate(impl_->client, CFSTR("out"), &impl_->out) != noErr)
-        return fail("could not create the MIDI output port");
+        return giveUp("could not create the MIDI output port");
     if (MIDIPortConnectSource(impl_->in, src, nullptr) != noErr)
-        return fail("could not connect to the MIDI source");
+        return giveUp("could not connect to the MIDI source");
 
     impl_->source = src;
     impl_->dest = dst;
@@ -232,10 +265,7 @@ bool Device::open(const std::string& wanted, std::string* error,
 void Device::close() {
     if (!impl_) return;
     impl_->lock.release();
-    if (impl_->in && impl_->source) MIDIPortDisconnectSource(impl_->in, impl_->source);
-    impl_->source = 0;
-    impl_->dest = 0;
-    impl_->port.clear();
+    impl_->teardown();
 }
 
 void Device::send(std::span<const std::uint8_t> raw) {
