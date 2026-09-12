@@ -112,22 +112,12 @@ MainComponent::MainComponent(DeviceWorker& worker, AudioTap* tap)
     addAndMakeVisible(loadVoiceButton_);
 
     voices_.onPick = [this](const Voice& v) {
-        // Bank Select + Program Change on the part's own receive channel.
-        worker_.post([this, v](Device& d) { d.selectVoice(v.msb, v.lsb, v.program, std::uint8_t(part_)); });
-        worker_.noteExternalChange();
-        if (const auto* msb = param("multi_part_bank_select"))
-            worker_.setParameter(*msb, part_, v.msb);
-        if (const auto* lsb = param("multi_part_bank_select_lsb"))
-            worker_.setParameter(*lsb, part_, v.lsb);
-        if (const auto* pgm = param("multi_part_program_number"))
-            worker_.setParameter(*pgm, part_, v.program);
+        // The name updates now so the list feels immediate; the rack hears
+        // about it once the selection stops moving.
+        pendingVoice_ = &v;
+        pendingVoiceTicks_ = 4;                  // ~200 ms at the 20 Hz timer
         partVoiceNames_[size_t(part_)] = juce::String(std::string(v.name));
         dirty_ = true;
-        // Drum kits are laid out across the keyboard, so a middle-C audition is
-        // meaningless; C1 lands on a kick in Yamaha's kit mapping.
-        auditionNote_ = (v.kind == VoiceKind::Drum) ? 36 : 60;
-        if (auditionButton_.getToggleState())
-            juce::Timer::callAfterDelay(120, [this] { audition(); });
     };
 
     // Arm the rack's per-part ARP MIDI Out (38 pp 01). Without this the
@@ -497,6 +487,30 @@ void MainComponent::loadState() {
             });
         });
     });
+}
+
+/// Sends one voice to the rack: bank select and program change on the part's
+/// receive channel, then the Multi's own record of what that part holds.
+void MainComponent::sendVoiceToRack(const Voice& v) {
+    worker_.post([this, v](Device& d) {
+        d.selectVoice(v.msb, v.lsb, v.program, std::uint8_t(part_));
+    });
+    worker_.noteExternalChange();
+    if (const auto* msb = param("multi_part_bank_select"))
+        worker_.setParameter(*msb, part_, v.msb);
+    if (const auto* lsb = param("multi_part_bank_select_lsb"))
+        worker_.setParameter(*lsb, part_, v.lsb);
+    if (const auto* pgm = param("multi_part_program_number"))
+        worker_.setParameter(*pgm, part_, v.program);
+    // Drum kits are laid out across the keyboard, so a middle-C audition is
+    // meaningless; C1 lands on a kick in Yamaha's kit mapping.
+    auditionNote_ = (v.kind == VoiceKind::Drum) ? 36 : 60;
+    if (auditionButton_.getToggleState()) {
+        juce::Component::SafePointer<MainComponent> safe(this);
+        juce::Timer::callAfterDelay(120, [safe] {
+            if (safe != nullptr) safe->audition();
+        });
+    }
 }
 
 void MainComponent::setSingleMode(bool single) {
@@ -880,6 +894,14 @@ void MainComponent::timerCallback() {
     } else {
         blockedRetryTicks_ = 0;
     }
+
+    // Send the voice the selection settled on, not every one it passed over.
+    if (pendingVoice_ && --pendingVoiceTicks_ <= 0) {
+        const Voice* v = pendingVoice_;
+        pendingVoice_ = nullptr;
+        sendVoiceToRack(*v);
+    }
+
     if (!dirty_.exchange(false)) return;
     if (pendingStatus_.isNotEmpty()) {
         statusLabel_.setText(pendingStatus_, juce::dontSendNotification);

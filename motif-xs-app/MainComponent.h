@@ -149,6 +149,16 @@ private:
     std::array<juce::String, 16> partVoiceNames_;
     int part_{0};
 
+    // Arrow-keying through the voice list fired a bank select, a program
+    // change, three parameter writes and an audition note per row -- about
+    // seven MIDI messages for every row passed through on the way somewhere
+    // else. Held down, that is a few hundred a second at a rack whose input
+    // buffer is not built for it, and it arrives as damaged bulk data later.
+    // Only the voice actually settled on is sent.
+    const motifxs::Voice* pendingVoice_{nullptr};
+    int pendingVoiceTicks_{0};
+    void sendVoiceToRack(const motifxs::Voice&);
+
     VoiceBrowser voices_;
     ArpBrowser arps_;
     DrumEditor drums_;

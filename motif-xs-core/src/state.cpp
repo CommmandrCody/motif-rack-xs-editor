@@ -131,6 +131,10 @@ std::vector<Bytes> requestSequence(Device& device, Address header,
     // an unsynchronised push_back is a race, and a torn read here ends the
     // sequence early and silently loses whatever had not arrived yet.
     std::mutex collected;
+    // Let anything still in flight land before asking, so a late reply to an
+    // earlier read cannot arrive in the middle of this sequence.
+    device.quiesce();
+
     std::vector<Bytes> received;
     std::atomic<bool> sawFooter{false};
     // Counted separately: SysEx that arrived during the sequence but was not a
@@ -139,11 +143,15 @@ std::vector<Bytes> requestSequence(Device& device, Address header,
     // rack never sent.
     std::atomic<int> unparsed{0};
     std::atomic<int> biggest{0};
+    std::mutex sampleLock;
+    std::vector<Bytes> samples;          // the first few oddities, for the report
     device.setSysExListener([&](const Bytes& m) {
         const auto b = parseBulkDump(m);
         if (int(m.size()) > biggest.load()) biggest.store(int(m.size()));
         if (!b) {
             unparsed.fetch_add(1);
+            std::lock_guard lock(sampleLock);
+            if (samples.size() < 3) samples.push_back(m);
             return;
         }
         {
@@ -186,6 +194,16 @@ std::vector<Bytes> requestSequence(Device& device, Address header,
                       unparsed.load(), biggest.load(),
                       sawFooter.load() ? "" : ", NO FOOTER (timed out)");
         *report += line;
+        std::lock_guard sample(sampleLock);
+        for (const auto& m : samples) {
+            std::string hex;
+            for (std::size_t i = 0; i < m.size() && i < 16; ++i) {
+                char byte[4];
+                std::snprintf(byte, sizeof byte, "%02X ", m[i]);
+                hex += byte;
+            }
+            *report += "    unparsed (" + std::to_string(m.size()) + " bytes): " + hex + "\n";
+        }
     }
     return received;
 }

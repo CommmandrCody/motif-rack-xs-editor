@@ -320,6 +320,33 @@ void Device::selectVoice(std::uint8_t msb, std::uint8_t lsb, std::uint8_t progra
     send(m);
 }
 
+void Device::quiesce(std::chrono::milliseconds quiet, std::chrono::milliseconds limit) {
+    if (!isOpen()) return;
+    const auto deadline = std::chrono::steady_clock::now() + limit;
+    std::uint64_t last = 0;
+    {
+        std::lock_guard lock(impl_->mutex);
+        last = impl_->arrivals;
+    }
+    auto quietSince = std::chrono::steady_clock::now();
+    while (std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds{10});
+        std::uint64_t now = 0;
+        {
+            std::lock_guard lock(impl_->mutex);
+            now = impl_->arrivals;
+        }
+        if (now != last) {
+            last = now;
+            quietSince = std::chrono::steady_clock::now();
+            continue;
+        }
+        if (std::chrono::steady_clock::now() - quietSince >= quiet) break;
+    }
+    std::lock_guard lock(impl_->mutex);
+    impl_->inbox.clear();
+}
+
 void Device::setChannelListener(std::function<void(const Bytes&)> fn) {
     std::lock_guard lock(impl_->mutex);
     impl_->channelListener = std::move(fn);

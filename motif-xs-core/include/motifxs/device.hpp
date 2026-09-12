@@ -98,6 +98,14 @@ public:
     /// Called for every inbound SysEx message, on the MIDI read thread.
     void setSysExListener(std::function<void(const Bytes&)>);
 
+    /// Waits until nothing has arrived for `quiet`, giving up after `limit`.
+    /// A read that timed out still has its reply in flight, and that reply
+    /// lands in the middle of whatever is sent next. Before a bulk transfer,
+    /// letting the line go silent first is the difference between a clean
+    /// sequence and one with someone else's answer spliced into it.
+    void quiesce(std::chrono::milliseconds quiet = std::chrono::milliseconds{150},
+                 std::chrono::milliseconds limit = std::chrono::milliseconds{1500});
+
     /// Called for every inbound channel message, on the MIDI read thread.
     /// This is where arpeggiator output arrives when ARP MIDI Out is on.
     void setChannelListener(std::function<void(const Bytes&)>);
