@@ -308,7 +308,8 @@ void MotifXsProcessor::getStateInformation(juce::MemoryBlock& dest) {
     // UI layout is not.
     {
         const juce::ScopedLock lock(stateLock_);
-        if (!captured_.empty())
+        // Only a restorable capture is worth carrying in the project.
+        if (!captured_.empty() && captured_.problem().empty())
             tree.setProperty("multi", juce::String(toText(captured_)), nullptr);
         tree.setProperty("port", portName_, nullptr);
     }
@@ -337,6 +338,18 @@ void MotifXsProcessor::setStateInformation(const void* data, int size) {
     auto st = fromText(multi.toStdString());
     if (!st) return;
 
+    // A project carrying an unusable state must not have it adopted as the
+    // current one. Doing so writes it straight back on the next save, so a bad
+    // capture outlives the bug that made it -- and a template set carrying one
+    // reseeds it into every new project made from it.
+    if (const auto bad = st->problem(); !bad.empty()) {
+        const juce::ScopedLock lock(stateLock_);
+        captured_ = {};
+        restoreStatus_ = "this project's saved rack state is incomplete (" + juce::String(bad) +
+                         ") - it was ignored. Press CAPTURE NOW and save again.";
+        return;
+    }
+
     {
         const juce::ScopedLock lock(stateLock_);
         captured_ = *st;
@@ -364,7 +377,7 @@ void MotifXsProcessor::setStateInformation(const void* data, int size) {
         restoring_.store(false);
         const juce::ScopedLock lock(stateLock_);
         restoreStatus_ = ok ? juce::String("restored from the project")
-                            : juce::String("restore failed");
+                            : juce::String("restore failed - the rack rejected it");
         // The restore itself moved the rack; that is not an edit to capture.
         capturedAtChange_ = worker_->changeCount();
     });
