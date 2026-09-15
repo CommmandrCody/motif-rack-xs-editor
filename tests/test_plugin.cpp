@@ -303,6 +303,47 @@ int main() {
     }
 
     // ---------------------------------------------------------------------
+    group("the editor survives being opened and closed");
+    // Banked from: pluginval segfaulted in its Editor test at strictness 7.
+    // The editor queued work on timers, on the message thread and on the device
+    // worker, all capturing a raw `this`. In the standalone app that is
+    // harmless -- the window lives as long as the process -- but a plugin
+    // editor is destroyed every time its window closes, and the callbacks
+    // outlived it.
+    {
+        const auto src = withoutComments(readSource("motif-xs-app/MainComponent.cpp"));
+        check(!contains(src, "juce::MessageManager::callAsync"),
+              "deferred message-thread work goes through onMessageThread, which checks "
+              "the editor is still alive");
+        check(!contains(src, "callAfterDelay(250, [this]") &&
+              !contains(src, "callAfterDelay(300, [this]") &&
+              !contains(src, "callAfterDelay(400, [this]") &&
+              !contains(src, "callAfterDelay(700, [this"),
+              "no timer captures a bare `this` and fires into a destroyed editor");
+        check(contains(src, "alive_->store(false)"),
+              "the destructor disarms queued work before anything else runs");
+
+        const auto hdr = withoutComments(readSource("motif-xs-app/MainComponent.h"));
+        check(contains(hdr, "std::shared_ptr<std::atomic<bool>> alive_"),
+              "the liveness flag is shared, so a callback can outlive the object "
+              "and still answer");
+
+        // And the thing itself: open and close it repeatedly.
+        auto processor = std::unique_ptr<juce::AudioProcessor>(createPluginFilter());
+        for (int i = 0; i < 5; ++i) {
+            std::unique_ptr<juce::AudioProcessorEditor> ed(processor->createEditorIfNeeded());
+            check(ed != nullptr, "the editor is constructible");
+            ed.reset();
+            // Let any timer queued by the editor fire after it is gone --
+            // which is precisely what used to crash.
+            const auto until = juce::Time::getMillisecondCounter() + 60;
+            while (juce::Time::getMillisecondCounter() < until)
+                juce::MessageManager::getInstance()->runDispatchLoopUntil(10);
+        }
+        check(true, "five open/close cycles with the message loop pumped between them");
+    }
+
+    // ---------------------------------------------------------------------
     group("hardware");
     // A missing rack must LOOK missing. These never pass by falling back to
     // something simulated -- they say they were skipped.

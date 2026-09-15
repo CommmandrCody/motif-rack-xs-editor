@@ -55,11 +55,18 @@ else
 fi
 
 note "VST3 validation (pluginval)"
+# Homebrew installs it as an app bundle with no CLI on PATH, so look inside.
+PLUGINVAL=""
 if command -v pluginval > /dev/null 2>&1; then
+    PLUGINVAL=pluginval
+elif [ -x "/Applications/pluginval.app/Contents/MacOS/pluginval" ]; then
+    PLUGINVAL="/Applications/pluginval.app/Contents/MacOS/pluginval"
+fi
+if [ -n "$PLUGINVAL" ]; then
     if [ ! -d "$VST3" ]; then
         fail "no VST3 built at $VST3"
-    elif pluginval --validate-in-process --strictness-level 7 \
-                   --validate "$VST3" > /tmp/pluginval-motifxs.log 2>&1; then
+    elif "$PLUGINVAL" --validate-in-process --strictness-level 7 \
+                      --validate "$VST3" > /tmp/pluginval-motifxs.log 2>&1; then
         pass "pluginval passed at strictness 7"
     else
         fail "pluginval failed -- see /tmp/pluginval-motifxs.log"
@@ -67,9 +74,9 @@ if command -v pluginval > /dev/null 2>&1; then
     fi
 else
     if [ "$STRICT" = 1 ]; then
-        fail "pluginval not installed (brew install --cask pluginval)"
+        fail "pluginval not found (brew install --cask pluginval)"
     else
-        skip "pluginval not installed -- brew install --cask pluginval"
+        skip "pluginval not found -- brew install --cask pluginval"
     fi
 fi
 

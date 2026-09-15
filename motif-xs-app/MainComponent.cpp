@@ -189,7 +189,7 @@ MainComponent::MainComponent(DeviceWorker& worker, AudioTap* tap)
             worker_.post([ch, note](Device& d) {
                 d.send(Bytes{std::uint8_t(0x90 | ch), note, 100});
             });
-        juce::Timer::callAfterDelay(700, [this, ch, note] {
+        deferred(700, [this, ch, note] {
             worker_.post([ch, note](Device& d) {
                 d.send(Bytes{std::uint8_t(0x80 | ch), note, 0});
             });
@@ -257,10 +257,12 @@ MainComponent::MainComponent(DeviceWorker& worker, AudioTap* tap)
     // One rack, one port -- make the app useful on launch instead of making
     // the user find the Connect button first.
     if (portBox_.getSelectedId() > 0)
-        juce::Timer::callAfterDelay(250, [this] { connect(); });
+        deferred(250, [this] { connect(); });
 }
 
 MainComponent::~MainComponent() {
+    // First, so nothing queued anywhere runs against a half-destroyed object.
+    alive_->store(false);
     stopTimer();
     stopAudition();
     saveSettings();
@@ -320,7 +322,7 @@ void MainComponent::connect() {
             // letting the device layer find the rack's Port1 itself.
             if (!name.empty() && !retriedAuto_) {
                 retriedAuto_ = true;
-                juce::MessageManager::callAsync([this] {
+                onMessageThread([this] {
                     for (int i = 0; i < portBox_.getNumItems(); ++i)
                         if (portBox_.getItemText(i).contains("MOTIF") &&
                             portBox_.getItemText(i).contains("Port1")) {
@@ -336,7 +338,7 @@ void MainComponent::connect() {
         retriedAuto_ = false;
         blocked_ = false;
         setStatus("connected", theme::good);
-        juce::MessageManager::callAsync([this, info] {
+        onMessageThread([this, info] {
             deviceLabel_.setText("device " + juce::String(info.deviceNumber) +
                                      "   firmware " + juce::String(info.firmwareVersion, 1),
                                  juce::dontSendNotification);
@@ -415,9 +417,9 @@ void MainComponent::loadCustomPatch() {
             worker_.noteExternalChange();
             const juce::String nm(voiceName(*v));
             setStatus("applied '" + nm + "' to part " + juce::String(part + 1), theme::good);
-            juce::MessageManager::callAsync([this, part, nm] {
+            onMessageThread([this, part, nm] {
                 partVoiceNames_[size_t(part)] = nm;
-                juce::Timer::callAfterDelay(300, [this] {
+                deferred(300, [this] {
                     refreshElementPage();
                     refreshDrumPage();
                 });
@@ -482,8 +484,8 @@ void MainComponent::loadState() {
             }
             restoreState(d, *st);
             setStatus("restored " + juce::String(st->summary()), theme::good);
-            juce::MessageManager::callAsync([this] {
-                juce::Timer::callAfterDelay(400, [this] { pullPartState(); });
+            onMessageThread([this] {
+                deferred(400, [this] { pullPartState(); });
             });
         });
     });
@@ -555,7 +557,7 @@ void MainComponent::pullPartState() {
                               [this, knob](std::optional<std::int32_t> v) {
                                   if (!v) return;
                                   const int raw = *v;
-                                  juce::MessageManager::callAsync(
+                                  onMessageThread(
                                       [knob, raw] { knob->setRaw(raw); });
                               });
     }
@@ -573,7 +575,7 @@ void MainComponent::pullPartState() {
             const auto* v = findVoice(std::uint8_t(*a), std::uint8_t(*b), std::uint8_t(*c));
             const juce::String name = v ? juce::String(std::string(v->name)) : "(unmapped)";
             const int ma = *a, mb = *b, mc = *c;
-            juce::MessageManager::callAsync([this, part, name, ma, mb, mc] {
+            onMessageThread([this, part, name, ma, mb, mc] {
                 partVoiceNames_[size_t(part)] = name;
                 if (part == part_) voices_.selectByProgram(ma, mb, mc);
                 repaint();
@@ -586,7 +588,7 @@ void MainComponent::pullPartState() {
         worker_.readParameter(*sw, part, [this](std::optional<std::int32_t> v) {
             if (!v) return;
             const bool on = *v != 0;
-            juce::MessageManager::callAsync([this, on] {
+            onMessageThread([this, on] {
                 arpSwitch_.setToggleState(on, juce::dontSendNotification);
                 updateArpWarning();
             });
@@ -595,7 +597,7 @@ void MainComponent::pullPartState() {
         worker_.readParameter(*out, part, [this](std::optional<std::int32_t> v) {
             if (!v) return;
             const bool on = *v != 0;
-            juce::MessageManager::callAsync([this, on] {
+            onMessageThread([this, on] {
                 arpMidiOut_.setToggleState(on, juce::dontSendNotification);
             });
         });
@@ -603,7 +605,7 @@ void MainComponent::pullPartState() {
         worker_.readParameter(*hold, part, [this](std::optional<std::int32_t> v) {
             if (!v) return;
             const bool on = *v == 2;
-            juce::MessageManager::callAsync([this, on] {
+            onMessageThread([this, on] {
                 arpHold_.setToggleState(on, juce::dontSendNotification);
                 updateArpWarning();
             });
@@ -618,7 +620,7 @@ void MainComponent::pullPartState() {
         worker_.readParameter(*assign, part, [this](std::optional<std::int32_t> v) {
             if (!v) return;
             const int number = *v;
-            juce::MessageManager::callAsync([this, number] {
+            onMessageThread([this, number] {
                 arps_.selectByNumber(number);
                 const auto* meta = findArpeggio(number);
                 arpNameLabel_.setText(number == 0 ? juce::String("(no arp)")
@@ -737,7 +739,7 @@ void MainComponent::refreshDrumPage() {
         while (!kit.empty() && kit.back() == ' ') kit.pop_back();
 
         if (kit.empty()) {
-            juce::MessageManager::callAsync([this] {
+            onMessageThread([this] {
                 drums_.setAvailable(false, "select a drum kit on the rack's current part");
             });
             return;
@@ -746,7 +748,7 @@ void MainComponent::refreshDrumPage() {
         // Work out which part this buffer belongs to by matching the kit name
         // against the parts we have already read.
         const juce::String kitName(kit);
-        juce::MessageManager::callAsync([this, kitName] {
+        onMessageThread([this, kitName] {
             juce::String which;
             for (int p = 0; p < 16; ++p)
                 if (partVoiceNames_[size_t(p)] == kitName) {
@@ -761,10 +763,10 @@ void MainComponent::refreshDrumPage() {
             auto b = d.readAddress({0x47, std::uint8_t(ee), 0x00},
                                    std::chrono::milliseconds{50});
             const bool on = b && !b->empty() && (*b)[0] != 0;
-            juce::MessageManager::callAsync(
+            onMessageThread(
                 [this, ee, on] { drums_.keyMap().setAssigned(ee, on); });
         }
-        juce::MessageManager::callAsync([this] { pullDrumKey(drums_.keyMap().selected()); });
+        onMessageThread([this] { pullDrumKey(drums_.keyMap().selected()); });
     });
 }
 
@@ -783,13 +785,13 @@ void MainComponent::refreshElementPage() {
         while (!name.empty() && name.back() == ' ') name.pop_back();
 
         if (name.empty()) {
-            juce::MessageManager::callAsync([this] {
+            onMessageThread([this] {
                 elements_.setAvailable(false, "select a Normal Voice on the rack's current part");
             });
             return;
         }
         const juce::String voiceName(name);
-        juce::MessageManager::callAsync([this, voiceName] {
+        onMessageThread([this, voiceName] {
             juce::String which;
             for (int p = 0; p < 16; ++p)
                 if (partVoiceNames_[size_t(p)] == voiceName) {
@@ -803,13 +805,13 @@ void MainComponent::refreshElementPage() {
             if (const auto* p = elements_.assignParameter())
                 if (auto v = d.readParameter(*p, ee, std::chrono::milliseconds{60})) {
                     const bool on = *v != 0;
-                    juce::MessageManager::callAsync(
+                    onMessageThread(
                         [this, ee, on] { elements_.setAssigned(ee, on); });
                 }
             if (auto w = d.readAddress({0x41, std::uint8_t(ee), 0x03})) {
                 if (w->size() >= 2) {
                     const int num = ((*w)[0] << 7) | (*w)[1];
-                    juce::MessageManager::callAsync(
+                    onMessageThread(
                         [this, ee, num] { elements_.setWaveform(ee, num); });
                 }
             }
@@ -817,12 +819,12 @@ void MainComponent::refreshElementPage() {
                 if (!p) continue;
                 if (auto v = d.readParameter(*p, ee, std::chrono::milliseconds{60})) {
                     const int raw = *v;
-                    juce::MessageManager::callAsync(
+                    onMessageThread(
                         [this, ee, p, raw] { elements_.setValue(ee, *p, raw); });
                 }
             }
         }
-        juce::MessageManager::callAsync([this] { pullElement(elements_.selected()); });
+        onMessageThread([this] { pullElement(elements_.selected()); });
     });
 }
 
@@ -839,7 +841,7 @@ void MainComponent::pullElement(int ee) {
             const auto v = d.readParameter(*p, ee, std::chrono::milliseconds{60});
             if (!v) continue;
             const int raw = *v;
-            juce::MessageManager::callAsync([this, ee, p, raw] { elements_.setValue(ee, *p, raw); });
+            onMessageThread([this, ee, p, raw] { elements_.setValue(ee, *p, raw); });
         }
     });
 }
@@ -850,7 +852,7 @@ void MainComponent::pullDrumKey(int ee) {
         if (auto w = d.readAddress({0x47, std::uint8_t(ee), 0x06})) {
             if (w->size() >= 2) {
                 const int num = ((*w)[0] << 7) | (*w)[1];
-                juce::MessageManager::callAsync([this, num] { drums_.setWaveform(num); });
+                onMessageThread([this, num] { drums_.setWaveform(num); });
             }
         }
         std::vector<const Parameter*> wanted;
@@ -863,7 +865,7 @@ void MainComponent::pullDrumKey(int ee) {
             const auto v = d.readParameter(*p, ee, std::chrono::milliseconds{60});
             if (!v) continue;
             const int raw = *v;
-            juce::MessageManager::callAsync([this, p, raw] { drums_.setValue(*p, raw); });
+            onMessageThread([this, p, raw] { drums_.setValue(*p, raw); });
         }
     });
 }

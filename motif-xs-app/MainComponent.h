@@ -131,6 +131,43 @@ private:
 
     motifxs::DeviceWorker& worker_;
 
+    /// Deferred work must not touch a destroyed editor.
+    ///
+    /// In the standalone app this never mattered: the window lives as long as
+    /// the process. In a plugin the editor is created and destroyed every time
+    /// its window is opened and closed, and callbacks queued on a timer, on the
+    /// message thread or on the device worker routinely outlive it. pluginval
+    /// closes and reopens the editor in a tight loop and segfaulted on it.
+    ///
+    /// The flag is shared rather than a member so a callback can hold its own
+    /// reference and still answer the question after the object is gone. The
+    /// worker calls back from its own thread, which is why this is not a
+    /// Component::SafePointer -- those may only be tested on the message
+    /// thread.
+    std::shared_ptr<std::atomic<bool>> alive_{std::make_shared<std::atomic<bool>>(true)};
+
+    /// Runs `fn` after `ms`, unless this editor is gone by then.
+    template <typename Fn>
+    void deferred(int ms, Fn fn) {
+        juce::Timer::callAfterDelay(ms, [alive = alive_, fn] {
+            if (alive->load()) fn();
+        });
+    }
+    /// Runs `fn` on the message thread, unless this editor is gone by then.
+    template <typename Fn>
+    void onMessageThread(Fn fn) {
+        juce::MessageManager::callAsync([alive = alive_, fn] {
+            if (alive->load()) fn();
+        });
+    }
+    /// Wraps a worker callback so it does nothing once this editor is gone.
+    template <typename Fn>
+    auto guarded(Fn fn) {
+        return [alive = alive_, fn](auto&&... args) {
+            if (alive->load()) fn(std::forward<decltype(args)>(args)...);
+        };
+    }
+
     // header
     juce::ComboBox portBox_;
     juce::TextButton connectButton_{"Connect"};

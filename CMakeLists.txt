@@ -136,6 +136,9 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/JUCE/CMakeLists.txt")
     target_include_directories(motif-xs-plugin-tests PRIVATE motif-xs-app motif-xs-plugin)
     target_compile_definitions(motif-xs-plugin-tests PRIVATE
         MOTIFXS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+        # The editor lifetime test has to pump the message loop so timers queued
+        # by a destroyed editor actually fire, which is what used to crash.
+        JUCE_MODAL_LOOPS_PERMITTED=1
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
         JUCE_STANDALONE_APPLICATION=0
