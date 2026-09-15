@@ -1,241 +1,108 @@
-# Motif Rack XS Modern Editor
+# Motif Rack XS Editor
 
-A native macOS editor/controller for the Yamaha MOTIF-RACK XS, targeting
-Apple Silicon and Ableton Live. The hardware stays the sound engine; this makes
-it feel like a modern synth module inside a DAW.
+A native macOS editor and controller for the Yamaha MOTIF-RACK XS. CLI,
+standalone app, and VST3/AU plugin. The rack stays the sound engine. This makes
+it behave like a modern synth inside Ableton Live.
 
-**Status: complete and in use.** A CLI, a standalone GUI and a VST3/AU plugin,
-all driving a physical MOTIF-RACK XS. The plugin passes Apple's `auval`
-validation and stores the rack's whole rig -- Multi *and* all 16 part voices --
-in the DAW project, captured automatically so a saved session comes back.
+**Status: done and in daily use.** The plugin passes Apple's `auval`. It stores
+the rack's whole rig in the Live project — the Multi *and* all 16 part voices —
+and puts it back when the project reopens.
 
-## Requirements
+## Why
 
-| | |
-|---|---|
-| Platform | **macOS only** for now, universal (Apple Silicon + Intel) |
-| Hardware | a Yamaha MOTIF-RACK XS, connected by USB |
-| Build | CMake 3.21+, a C++20 compiler; JUCE for the app and plugin |
+I own this rack. It sounds better than most of what I could buy today, and it
+has been unusable in a modern session for years. The editor Yamaha shipped is a
+PowerPC-era relic. mLAN is dead. Every patch change means walking to the rack.
 
-**Windows is not supported yet**, and the reason is narrow: the whole project is
-portable C++20 except `motif-xs-core/src/device.cpp`, which is CoreMIDI. A
-Windows build needs a WinMM or WinRT MIDI implementation behind the same
-`Device` interface -- one file, no changes anywhere else. That is the single
-most useful contribution anyone with a Windows machine could make.
+So the rig lives outside the project. You save a session, come back a month
+later, and the rack is on whatever you left it on. That is the problem worth
+solving: **not editing, recall.** A Multi is a reference to patches, so saving
+one brings back the stored patch and silently throws away every edit you made
+to it. This captures the Multi and all 16 part edit buffers — 423 blocks, about
+29 kB — so the session comes back the way you left it.
 
-The binaries are **unsigned and not notarized**, so on any Mac other than the
-one that built them, Gatekeeper will refuse to open them until you allow it in
-System Settings → Privacy & Security. Building from source avoids that.
+Everything else grew out of that.
 
-## Layout
+## Design
+
+**The core knows nothing about UI, JUCE, or VST.** `motif-xs-core` is portable
+C++20 with one platform file. The CLI, app, and plugin are thin shells over it.
+
+**Parameters are data, not code.** 1136 parameters live in `data/parameters.json`
+with address, size, encoding, and range, generated into a C++ table. There is
+no SysEx byte array anywhere in the source. Adding a device is a table, not a
+code path.
+
+**One client at a time, enforced.** The rack has a single MIDI port and no
+arbitration, and CoreMIDI merges the output of every client that opens a
+destination. A second client's messages land inside the first one's bulk
+transfer and the rack rejects the sequence. Opening the rack takes an exclusive
+file lock and a second client is refused by name.
+
+**A capture has to be restorable before it can be saved.** The Multi needs its
+header, footer, and all 16 part blocks; a voice needs its Common block.
+Anything short is refused at both ends and never written into a project. A
+capture that half-arrived is worse than none: it looks fine, replaces the good
+one, and only fails when you reopen the session weeks later.
 
 ```
-motif-xs-core/     reusable C++20 core -- no JUCE, no UI, no VST
-motif-xs-cli/      motifxs command line tool (milestone 1)
-motif-xs-app/      standalone GUI            (milestone 2)
-motif-xs-plugin/   VST3 / AU -- builds, passes auval
-data/              machine-readable catalogs extracted from Yamaha docs
-docs/              protocol and architecture documentation
-tools/             extraction and code-generation scripts
-reference/         Yamaha PDFs (the implementation authority)
+motif-xs-core/     C++20 core — no JUCE, no UI, no VST
+motif-xs-cli/      motifxs command line tool
+motif-xs-app/      standalone app
+motif-xs-plugin/   VST3 / AU
+data/              catalogs extracted from Yamaha's documentation
+docs/              protocol and architecture notes
+tools/             extraction and code generation
 tests/             core tests, no hardware needed
 ```
 
-## Build
+Architecture notes are in `docs/`: `protocol.md`, `address-map.md`,
+`state-sync.md`, `voice-architecture.md`, `drum-architecture.md`,
+`arp-architecture.md`, `multi-architecture.md`, `vst-architecture.md`,
+`midi-routing.md`.
 
-> **After a macOS major upgrade**, Apple's `xcode-select` shim can end up
-> pointing at an Xcode that is too old for the new OS, and then `git`, `clang`
-> and `xcrun` all fail with `Symbol not found: _XPCTypeBool`. The compiler
-> itself is fine; only the wrapper is broken. Either point the shim at the
-> standalone tools once:
->
-> ```sh
-> sudo xcode-select -s /Library/Developer/CommandLineTools
-> ```
->
-> or set `DEVELOPER_DIR=/Library/Developer/CommandLineTools` per shell, which
-> needs no sudo. Updating Xcode from the App Store also fixes it.
+## Method
 
-The CLI, core and tests need nothing but CMake 3.21+ and a C++20 compiler:
+Published specification → hardware experiment → captured behaviour →
+implementation. No reverse engineering of Yamaha binaries. The PDFs are the
+authority, and every claim in `docs/` is either cited to them or marked
+verified or contradicted on hardware.
 
-```sh
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j8
-./build/motif-xs-tests
-```
+That last part matters more than it sounds.
 
-The standalone GUI additionally needs JUCE, which is not vendored:
+## What the documentation gets wrong
 
-```sh
-git clone --depth 1 --branch 8.0.4 https://github.com/juce-framework/JUCE.git external/JUCE
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --target motif-xs-app -j8
-open "build/motif-xs-app_artefacts/Release/Motif Rack XS.app"
-```
+Yamaha's Data List is good. It is not correct. Five errors, all found by reading
+addresses back off the rack, all of which fail *silently* — the unit ignores
+the message or returns nothing, which looks exactly like a reserved address.
 
-CMake skips the app target if `external/JUCE` is absent, so the core and CLI
-always build.
+1. **Identity Request is not omni.** The Data List says the unit receives under
+   omni. `F0 7E 7F 06 01 F7` gets no reply. Only the explicit device-number form
+   works, so discovery has to sweep 0–15.
+2. **Mode Change is at `0A 00 01`**, not the `0A 00 00` printed in the p62
+   memory map. That is the block base, not the parameter.
+3. **Multi Part Program Number is 0-based**, not the documented "1 – 128".
+   Converting to be safe is what gives you the off-by-one.
+4. **The Audio In Part's mid byte is fixed at `41`**, though the table prints it
+   as the part variable `pp`.
+5. **Bank Select and Program Change receive can be off** (`00 00 14`, `00 00
+   15`). My unit shipped with both off, so every patch change was ignored with
+   no error anywhere. `motifxs` warns about it now.
 
-Binaries are **universal (arm64 + x86_64)**. Note that
-`CMAKE_OSX_ARCHITECTURES` must be set *before* `project()` -- afterwards the
-cache entry already exists and a non-`FORCE` `set()` is silently ignored, at
-which point CMake builds for its own architecture. A Homebrew CMake running
-under Rosetta will then quietly produce Intel binaries on an Apple Silicon Mac.
+Corrections live in `data/parameters_corrections.json`.
 
-## The app
+### A gap closed by experiment
 
-Auto-connects to MOTIF-RACK XS Port1 and reads the rack's live state.
-
-* 16-part strip with each part's resolved voice name
-* Voice browser: 1217 voices in collapsible categories, searchable, bank filter
-* Arp browser: 6633 types filtered by text, category, metre and tempo range
-* Nine PERFORM macros (volume, pan, cutoff, reso, attack, decay, release,
-  reverb, chorus) bound to Multi Part offsets, so they shift all eight elements
-  together the way the rack's own knobs do
-* **SAVE / LOAD** -- capture the whole rig to a file and restore it: the Multi
-  (every part, arp and effect) *and* all 16 part voices, so voice-level edits
-  survive too. 423 blocks, ~29 kB, about 5 seconds. See `docs/state-sync.md`
-* **SAVE PATCH / LOAD PATCH** -- an edited voice lives only in a part's edit
-  buffer and dies at the next patch change. Save it whole as a file and put it
-  back on any part. The rack manages 16 of these (Mixing Voices) and only within
-  one Multi; as files they are unlimited
-* **THRU** -- forward the rack's arpeggiator to another instrument (an
-  INTEGRA-7, say); see `docs/midi-routing.md`
-* **ARP -> DAW** (plugin only) -- relay the arpeggiator into the host track as
-  MIDI, so the phrase can be recorded without an IAC bus
-* **PANIC** -- all notes off plus ARP switch/hold cleared on all 16 parts,
-  and All Notes Off to the thru target too
-* **SCOPE** -- a waveform and log-spaced spectrum of the rack's audio. In the
-  plugin it analyses whatever reaches the track. In the standalone app, pick the
-  interface *and the stereo pair* the rack is on -- a rack on an 18-input desk
-  is rarely on channels 1/2. macOS asks for microphone permission, which it
-  requires even for a line input. When there is nothing to draw the page says
-  why rather than showing a flat line
-
-## Use
-
-```sh
-./build/motifxs list-midi                  # find the rack
-./build/motifxs identify                   # device number and firmware
-./build/motifxs status                     # mode, live edit buffer, voice name
-./build/motifxs voices "concert grand"     # search 1217 factory voices
-./build/motifxs patch PRE1 1               # select a voice (1-based)
-./build/motifxs patch-name "Rock Grand"    # select by name
-./build/motifxs arp-list cat=DrPc tempo=120-128 house
-./build/motifxs arp 1 3861                 # assign an arpeggio to slot SF1
-./build/motifxs get  normal_voice_element_filter_cutoff_frequency 0
-./build/motifxs set  normal_voice_element_filter_cutoff_frequency 80 0
-./build/motifxs read 40 00 00              # raw address
-./build/motifxs save live-set.motifxs      # capture the whole Multi
-./build/motifxs show live-set.motifxs      # what a saved file holds
-./build/motifxs load live-set.motifxs      # restore it
-./build/motifxs voice-save 1 my-organ.motifxs   # one part's voice, edits and all
-./build/motifxs voice-load 5 my-organ.motifxs   # ...onto any part
-./build/motifxs thru "INTEGRA-7" 30        # forward the arp to another device
-./build/motifxs panic                      # all notes off, arpeggiators off
-./build/motifxs dump-state                 # read the live edit buffer
-```
-
-## Single and Multi
-
-The rack is always in Multi mode. That is not a setting this editor changes: the
-edit buffers are addressed per part, and capture and restore work on the whole
-Multi, so all sixteen parts are always there and always saved with the project.
-
-What the SINGLE / MULTI button changes is how much of that you have to look at.
-One sound, one controller, one track is the normal case, and it does not need a
-sixteen-part strip on screen -- so SINGLE, the default, hides the strip and the
-window shows only the part being played. Press it for MULTI when you want to
-move between parts; the choice is remembered.
-
-Automation is unaffected. The host's `part` parameter still selects the part in
-either mode, so a project that automates it keeps working with the strip hidden.
-
-## Testing against the hardware
-
-Unit tests cover the encoding; the rack itself covers the rest. `motifxs soak`
-is the hardware test:
-
-```
-motifxs soak 10
-```
-
-Each round puts a random voice on a random part, makes random edits and reads
-every one of them back, fires a burst of a dozen or more patch changes as fast
-as arrow-keying a voice list sends them, then captures. Every other round it
-restores what it just captured and captures again -- two captures either agree
-block for block or the test names the blocks that drifted. It also asks to open
-the already-open device, which is what corrupted transfers before.
-
-It captures the current Multi before touching anything, writes it to
-`~/Library/Logs/MotifRackXS/soak-baseline.motifxs`, restores it at the end and
-verifies that too. If the run fails, that file is what puts the rack back.
-
-## One client at a time
-
-**Only one of the app, the plugin or the CLI may talk to the rack at once.**
-This is enforced, not advised: opening the rack takes an exclusive lock, and a
-second client is refused with a message naming the first.
-
-The reason is that the rack has a single MIDI port with no arbitration, and
-CoreMIDI merges the output of every client that opens a destination. A second
-client's Parameter Requests land *inside* the first one's bulk transfer,
-splitting the stream -- the rack rejects the sequence with "illegal bulk data"
-on its display and the transfer silently half-applies. Leaving the standalone
-app open while the plugin restored a project did exactly this.
-
-The lock is advisory on a file, so the operating system releases it if a process
-dies; a crash cannot leave the rack permanently locked.
-
-## Using it in Ableton Live
-
-One track does everything. The plugin declares itself an **audio effect** (VST3
-sub-category `Fx`), so it can sit *after* an External Instrument device:
-
-```
-MIDI track
-├─ MIDI clips
-├─ External Instrument      MIDI To:    YAMAHA MOTIF-R XS Port1, channel N
-│                           Audio From: the interface input the rack returns on
-└─ Motif Rack XS            <- editor, state recall, and the SCOPE sees the audio
-```
-
-Being in the audio chain costs the plugin nothing: it ignores host MIDI
-entirely and talks to the rack over its own CoreMIDI connection, for the reasons
-in `docs/vst-architecture.md`. Put it before the External Instrument and it
-still controls the rack -- it just sees no audio, so the SCOPE page stays empty
-and says so.
-
-**Recording the arpeggiator** is the one thing that wants a second track,
-because a plugin in the audio chain cannot record its MIDI output to its own
-track. Arm **ARP -> DAW** in the plugin, then on a second MIDI track set
-*MIDI From* to that track and the **Motif Rack XS** plugin, and record-arm it.
-The part also needs `ARP` and `OUT` enabled or the rack transmits nothing.
-
-## Data
-
-Extracted from Yamaha's published documentation, not from any binary.
-
-| File | Contents |
-|---|---|
-| `data/parameters.json` | 1136 parameters (920 non-reserved) across 10 scopes |
-| `data/voices.json` | 1217 factory voices with bank/MSB/LSB/program and categories |
-| `data/arpeggios.json` | 6633 arpeggio types with category, tempo, metre, flags |
-
-Regenerate with:
-
-```sh
-python3 tools/extract_parameters.py   # raw table rows
-python3 tools/build_parameters.py     # -> data/parameters.json
-python3 tools/extract_voices.py       # -> data/voices.json
-python3 tools/extract_arpeggios.py    # -> data/arpeggios.json
-python3 tools/gen_tables.py           # -> C++ tables
-```
+Yamaha lists Sequencer Setup (`00 05 00`) as a 22-byte bulk block and publishes
+no parameter table for it. I probed all 22 addresses. Exactly two answer:
+`00 05 0B` **MIDI Sync** and `00 05 0C` **MIDI Clock Out**, confirmed by panel
+reading, value-range fingerprinting, and the Quick Setup block's ordering. They
+are in `data/parameters_discovered.json`, flagged `source: "hardware"`.
 
 ## Verification
 
-The address map is not trusted on paper. Every concrete address was read from a
-physical unit and the reply length compared to the documented size:
+Every concrete address read from the rack, reply length compared to the
+documented size:
 
 | Scope | Addresses exact | Size mismatches | Unexplained silence |
 |---|---|---|---|
@@ -248,86 +115,177 @@ physical unit and the reply length compared to the documented size:
 | Multi Part | 96 | 0 | 0 |
 | **Total** | **859** | **0** | **0** |
 
-Also verified end to end: 10/10 randomly sampled voice names read back from the
-device match the catalog; arpeggio numbers 1, 3861 and 6633 round-trip through
-the 2-byte encoding; and all 16 Multi parts resolve their bank/program to real
-voice names.
+Also verified end to end: 10 of 10 randomly sampled voice names read back match
+the catalog, arpeggio numbers 1, 3861 and 6633 round-trip through the 2-byte
+encoding, and all 16 parts resolve bank and program to real voice names.
 
-## Things the documentation gets wrong
+### Soak test
 
-Found the hard way; all three are in `docs/protocol.md`.
+Unit tests cover encoding. The rack covers the rest.
 
-1. **Identity Request is not omni.** The Data List says the unit "receives under
-   omni", but `F0 7E 7F 06 01 F7` gets no reply. Only the explicit device-number
-   form works, so discovery must sweep 0–15.
-2. **Mode Change is at `0A 00 01`,** not the `0A 00 00` printed in the p62
-   memory map — that is the block base, not the parameter.
-3. **Bank Select / Program Change receive can be off** (`00 00 14`, `00 00 15`).
-   The reference unit shipped with both off, so every patch change was ignored
-   with no error at all. `motifxs` warns about this.
-4. **Multi Part `Program Number` is 0-based**, not the documented "1 - 128".
-   Converting "to be safe" is what causes the off-by-one. Recorded in
-   `data/parameters_corrections.json`.
-5. **The Audio In Part's mid byte is fixed at `41`**, though the table prints it
-   as the part variable `pp`.
+```sh
+motifxs soak 10
+```
 
-## Documented gap, closed by experiment
+Each round puts a random voice on a random part, makes random edits and reads
+every one back, fires a burst of a dozen or more patch changes at arrow-key
+speed, then captures. Every other round it restores what it just captured and
+captures again — the two agree block for block or the test names what drifted.
+It captures your Multi first, restores it at the end, and verifies that too.
 
-Yamaha lists Sequencer Setup (`00 05 00`) as a 22-byte bulk block but publishes
-no parameter table for it. Probing all 22 addresses found exactly two that
-answer: `00 05 0B` **MIDI Sync** and `00 05 0C` **MIDI Clock Out**, confirmed by
-panel reading, value-range fingerprinting and the Quick Setup block's ordering.
-They live in `data/parameters_discovered.json`, flagged `source: "hardware"`.
+```
+rounds           : 10
+writes verified  : 60  (0 disagreed)
+captures         : 10  (0 failed)
+round-trip drift : 0 blocks
+restored to start: yes, identical
+result           : PASS
+```
+
+Every bug that mattered here only showed up against hardware under load. The
+worst one opened the rack twice, so every MIDI packet arrived twice and spliced
+bulk transfers into nonsense — 209-byte messages where the largest real block is
+107. Remove the fix and the soak test catches it in two rounds.
+
+## Requirements
+
+| | |
+|---|---|
+| Platform | macOS, universal (Apple Silicon + Intel) |
+| Hardware | Yamaha MOTIF-RACK XS over USB |
+| Build | CMake 3.21+, C++20; JUCE 8 for the app and plugin |
+
+**Windows is coming.** The whole project is portable C++20 except
+`motif-xs-core/src/device.cpp`, which is CoreMIDI — one file behind the `Device`
+interface, no changes anywhere else. I am building a Windows host with the
+tooling on it so this gets tested properly rather than shipped blind.
+
+Binaries here are unsigned, so Gatekeeper will block them on any Mac other than
+the one that built them until you allow it in System Settings → Privacy &
+Security. Building from source avoids that.
+
+## Build
+
+Core, CLI and tests need nothing but CMake and a compiler:
+
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j8
+./build/motif-xs-tests
+```
+
+The app and plugin need JUCE, which is not vendored:
+
+```sh
+git clone --depth 1 --branch 8.0.4 https://github.com/juce-framework/JUCE.git external/JUCE
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j8
+```
+
+CMake skips those targets if `external/JUCE` is absent.
+
+Two traps worth knowing. `CMAKE_OSX_ARCHITECTURES` must be set *before*
+`project()` — afterwards the cache entry exists and a non-`FORCE` `set()` is
+ignored, and a Homebrew CMake under Rosetta then quietly builds Intel binaries
+on Apple Silicon. And after a macOS major upgrade, `xcode-select` can point at
+an Xcode too old for the new OS, at which point `git` and `clang` both fail with
+`Symbol not found: _XPCTypeBool`; `sudo xcode-select -s
+/Library/Developer/CommandLineTools` fixes it.
+
+## Use
+
+```sh
+motifxs list-midi          # find the rack
+motifxs identify           # device number and firmware
+motifxs status             # mode, edit buffer, voice name
+motifxs voices bass        # search 1217 voices
+motifxs patch 1 PRE1 42    # put a voice on a part
+motifxs save rig.motifxs   # capture the whole rig
+motifxs load rig.motifxs   # put it back
+motifxs soak 10            # hardware test
+motifxs panic              # all notes off, arp cleared
+```
+
+The app auto-connects to Port1 and reads the rack's live state.
+
+* Voice browser — 1217 voices in collapsible categories, searchable, bank filter
+* Arp browser — 6633 types filtered by text, category, metre and tempo
+* Nine PERFORM macros bound to Multi Part offsets, so they move all eight
+  elements together the way the rack's own knobs do
+* **SAVE / LOAD** — the whole rig to a file, Multi and all 16 part voices
+* **SAVE PATCH / LOAD PATCH** — an edited voice lives in a part's edit buffer
+  and dies at the next patch change. Save it whole, put it on any part. The rack
+  manages 16 of these and only inside one Multi. As files they are unlimited
+* **THRU** — forward the arpeggiator to another instrument
+* **ARP → DAW** — relay the arpeggiator into the host track, no IAC bus needed
+* **PANIC** — all notes off, arp switch and hold cleared on all 16 parts
+* **SCOPE** — waveform and log-spaced spectrum. In the app, pick the interface
+  *and* the stereo pair; a rack on an 18-input desk is rarely on 1/2
+
+### Single and Multi
+
+The rack is always in Multi. That is how the edit buffers are addressed and
+what gets captured, so all 16 parts are always there and always saved. SINGLE,
+the default, just hides the part strip and shows the one you play. MULTI brings
+it back. Automation is unaffected either way.
+
+### In Ableton Live
+
+One track. Put the plugin **after** the External Instrument so it sees the
+returning audio for the scope, and so the ARP → DAW relay does not run back into
+the rack. The plugin captures the rig a few seconds after you stop editing, and
+restores it when the project reopens. Press **CAPTURE NOW** before the first
+save to seed it.
+
+If the relay does loop, the plugin shuts it off and says so rather than letting
+it run.
+
+## Data
+
+Extracted from Yamaha's published documentation, not from any binary.
+
+| File | Contents |
+|---|---|
+| `data/parameters.json` | 1136 parameters across 10 scopes |
+| `data/voices.json` | 1217 factory voices with bank, MSB/LSB, program, category |
+| `data/arpeggios.json` | 6633 arpeggio types with category, tempo, metre, flags |
+
+```sh
+python3 tools/extract_parameters.py && python3 tools/build_parameters.py
+python3 tools/extract_voices.py
+python3 tools/extract_arpeggios.py
+python3 tools/gen_tables.py
+```
+
+The PDFs are not redistributed — they are in `.gitignore`. Every file under
+`data/` regenerates from your own copy, which is also how you would check my
+work.
 
 ## Known issue
 
-**Entering Multi mode over SysEx does not work** on the reference unit. Writes
-of every documented value to both candidate addresses are accepted and do
-nothing; the front panel `[MULTI]` button works. The address map is now fully
-validated, but unattended DAW recall will need this solved -- or the rack left
-in Multi mode, which `Power on Mode = multi` makes permanent.
-
-## Documentation
-
-`docs/protocol.md`, `address-map.md`, `voice-architecture.md`,
-`drum-architecture.md`, `arp-architecture.md`, `multi-architecture.md`,
-`state-sync.md`, `vst-architecture.md`, `midi-routing.md`.
-
-## Licence
-
-**AGPL-3.0**, because this links JUCE, which is dual-licensed AGPLv3 or
-commercial. If you build on this, your work inherits those terms.
-
-The VST3 SDK is MIT since late 2025, so it imposes nothing.
-
-### About the data
-
-`data/*.json` holds facts extracted from Yamaha's published documentation:
-parameter addresses, sizes and ranges, and the factory voice, arpeggio and
-waveform lists. The PDFs themselves are **not** redistributed here -- they are
-in `.gitignore`. Every file under `data/` can be regenerated from your own copy
-of Yamaha's documents with the scripts in `tools/`, which is also how you would
-check them.
-
-MOTIF-RACK XS, MOTIF and Yamaha are trademarks of Yamaha Corporation. This
-project is not affiliated with or endorsed by Yamaha.
+Entering Multi mode over SysEx does not work on my unit. Writes of every
+documented value to both candidate addresses are accepted and do nothing; the
+front panel button works. Leave the rack in Multi, which `Power on Mode = multi`
+makes permanent.
 
 ## Contributing
 
 The most useful thing anyone could add is **another device**. The parameter
-model is data-driven -- a device is a table, not a code path -- so a MOTIF XS or
-XF keyboard is mostly a matter of extracting its Data List and confirming the
-model ID and address map against hardware. The extraction tools in `tools/` are
-written to be pointed at a different PDF.
+model is data-driven, so a MOTIF XS or XF keyboard is mostly a matter of
+extracting its Data List and confirming the model ID and address map against
+hardware. The tools in `tools/` are written to be pointed at a different PDF.
 
-If you do that, please keep the discipline the rest of the project uses: read
-every address back off the real instrument before writing it down, and mark
-anything the documentation gets wrong. It gets things wrong more than you would
-expect -- see the list above.
+Second most useful: the Windows MIDI backend, if you beat me to it.
 
-## Approach
+Keep the discipline either way — read every address back off the real
+instrument before writing it down, and mark what the documentation gets wrong.
+It gets things wrong more than you would expect.
 
-Published specification → hardware experiment → captured behaviour →
-implementation. No reverse engineering of Yamaha binaries. Yamaha's PDFs in
-`reference/` are the implementation authority; every claim in `docs/` is either
-cited to them or marked as verified/contradicted on hardware.
+## Licence
+
+**AGPL-3.0**, because this links JUCE, which is dual-licensed AGPLv3 or
+commercial. If you build on this, your work inherits those terms. The VST3 SDK
+has been MIT since late 2025, so it imposes nothing.
+
+MOTIF-RACK XS, MOTIF and Yamaha are trademarks of Yamaha Corporation. This
+project is not affiliated with or endorsed by Yamaha.
