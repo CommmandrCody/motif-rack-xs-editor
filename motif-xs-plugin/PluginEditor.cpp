@@ -96,6 +96,17 @@ MotifXsEditor::MotifXsEditor(MotifXsProcessor& p)
 void MotifXsEditor::timerCallback() {
     // Nothing else matters if the rack is not ours: no edit, capture or
     // restore can work, and the cause is almost always the standalone app.
+    // A relay that shut itself off has to say so, or it reads as the feature
+    // being broken rather than as protection working.
+    if (processor_.feedbackTripped()) {
+        midiOutButton_.setToggleState(false, juce::dontSendNotification);
+        stateLabel_.setText("ARP -> DAW switched itself off: the relayed notes were coming "
+                            "back to the rack. Put this plugin after the External Instrument, "
+                            "then switch it on again.",
+                            juce::dontSendNotification);
+        stateLabel_.setColour(juce::Label::textColourId, theme::warn);
+        return;
+    }
     if (const auto blocked = processor_.deviceError(); blocked.isNotEmpty()) {
         stateLabel_.setText(blocked.contains("already in use")
                                 ? blocked + " - close it and this will reconnect"

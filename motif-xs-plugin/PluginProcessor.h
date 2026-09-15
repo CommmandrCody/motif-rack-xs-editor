@@ -93,6 +93,8 @@ public:
     /// Why the rack could not be opened, empty once it is. Almost always the
     /// standalone app holding the single-client lock.
     [[nodiscard]] juce::String deviceError() const;
+    /// True once a feedback loop has shut the relay off, until it is re-armed.
+    [[nodiscard]] bool feedbackTripped() const { return feedbackTripped_.load(); }
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout makeLayout();
@@ -138,6 +140,31 @@ private:
     std::array<RelayedMessage, kRelayCapacity> relayQueue_{};
     std::atomic<bool> relayOn_{false};
     std::atomic<int> relayDropped_{0};
+
+    /// Feedback protection for ARP -> DAW.
+    ///
+    /// On a single track the relayed notes can reach the rack again -- the
+    /// plugin's MIDI output runs downstream into the External Instrument that
+    /// feeds the rack, the rack arpeggiates what it is sent, and the result
+    /// comes back to be relayed once more. One key held for an instant then
+    /// sustains itself, and only PANIC stops it.
+    ///
+    /// Two defences. Notes the host just sent are not relayed back out, which
+    /// breaks the direct echo; and a note-on rate no player could produce shuts
+    /// the relay off rather than letting it run away.
+    struct RecentNote {
+        std::atomic<std::uint8_t> note{0};
+        std::atomic<std::uint8_t> channel{0};
+        std::atomic<std::int64_t> atSample{-1};
+    };
+    static constexpr int kRecentNotes = 64;
+    std::array<RecentNote, kRecentNotes> recentFromHost_{};
+    std::atomic<int> recentWrite_{0};
+    std::atomic<std::int64_t> sampleClock_{0};
+    std::atomic<int> relayNoteOns_{0};
+    std::atomic<std::int64_t> rateWindowStart_{0};
+    std::atomic<bool> feedbackTripped_{false};
+    [[nodiscard]] bool wasJustSentByHost(std::uint8_t status, std::uint8_t note) const;
 
     /// Automatic capture. getStateInformation cannot block on a five-second
     /// round trip to the rack, so the state has to already be there when the

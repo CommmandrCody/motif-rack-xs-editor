@@ -79,10 +79,27 @@ MotifXsProcessor::MotifXsProcessor()
     startTimerHz(30);
 }
 
+/// Did the host play this note in the last fraction of a second? The rack
+/// echoes what it is sent as well as what it arpeggiates, and on one track the
+/// echo is the first link of the loop.
+bool MotifXsProcessor::wasJustSentByHost(std::uint8_t status, std::uint8_t note) const {
+    const double sr = getSampleRate() > 0 ? getSampleRate() : 48000.0;
+    const auto window = std::int64_t(sr * 0.15);       // 150 ms
+    const auto now = sampleClock_.load();
+    const auto channel = std::uint8_t((status & 0x0F) + 1);
+    for (const auto& slot : recentFromHost_) {
+        const auto at = slot.atSample.load();
+        if (at < 0 || now - at > window) continue;
+        if (slot.note.load() == note && slot.channel.load() == channel) return true;
+    }
+    return false;
+}
+
 bool MotifXsProcessor::midiOutEnabled() const { return relayOn_.load(); }
 
 void MotifXsProcessor::setMidiOutEnabled(bool on) {
     relayOn_.store(on);
+    if (on) feedbackTripped_.store(false);           // re-arming clears the trip
     if (!on) {
         worker_->post([](Device& d) { d.setChannelListener({}); });
         return;
@@ -114,6 +131,20 @@ void MotifXsProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
     // well sit on the track the rack's audio returns on -- clearing the buffer
     // there would silently mute the instrument.
     juce::ScopedNoDenormals noDenormals;
+
+    // Remember what the host just played before the buffer is cleared, so the
+    // same notes coming back from the rack can be recognised as our own echo.
+    const std::int64_t blockStart = sampleClock_.load();
+    for (const auto meta : midi) {
+        const auto m = meta.getMessage();
+        if (!m.isNoteOnOrOff()) continue;
+        const int w = recentWrite_.fetch_add(1) & (kRecentNotes - 1);
+        auto& slot = recentFromHost_[std::size_t(w)];
+        slot.note.store(std::uint8_t(m.getNoteNumber()));
+        slot.channel.store(std::uint8_t(m.getChannel()));
+        slot.atSample.store(blockStart + meta.samplePosition);
+    }
+    sampleClock_.store(blockStart + buffer.getNumSamples());
     midi.clear();
 
     // Tap a mono sum for the scope. Cheap, and never allocates or locks.
@@ -142,11 +173,31 @@ void MotifXsProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
     if (relayOn_.load()) {
         int start1, size1, start2, size2;
         relayFifo_.prepareToRead(kRelayCapacity, start1, size1, start2, size2);
+        // A second of note-ons no player could produce means the relay is
+        // feeding itself. Sixteenth notes at 300 bpm across ten fingers is
+        // about 200; this sits well above anything played and well below a
+        // loop, which saturates instantly.
+        constexpr int kRunawayNoteOnsPerSecond = 400;
+        const double sr = getSampleRate() > 0 ? getSampleRate() : 48000.0;
+        if (blockStart - rateWindowStart_.load() > std::int64_t(sr)) {
+            if (relayNoteOns_.exchange(0) > kRunawayNoteOnsPerSecond) {
+                relayOn_.store(false);
+                feedbackTripped_.store(true);
+            }
+            rateWindowStart_.store(blockStart);
+        }
+
         const auto emit = [&](int from, int count) {
             for (int i = 0; i < count; ++i) {
                 const auto& s = relayQueue_[std::size_t(from + i)];
-                if (s.size >= 1)
-                    midi.addEvent(juce::MidiMessage(s.bytes, int(s.size)), 0);
+                if (s.size < 1) continue;
+                const auto status = std::uint8_t(s.bytes[0] & 0xF0);
+                if ((status == 0x90 || status == 0x80) &&
+                    wasJustSentByHost(s.bytes[0], s.bytes[1]))
+                    continue;                       // our own note, come home
+                if (status == 0x90 && s.size > 2 && s.bytes[2] > 0)
+                    relayNoteOns_.fetch_add(1);
+                midi.addEvent(juce::MidiMessage(s.bytes, int(s.size)), 0);
             }
         };
         emit(start1, size1);
