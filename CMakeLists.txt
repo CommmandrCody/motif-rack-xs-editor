@@ -127,6 +127,29 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/JUCE/CMakeLists.txt")
         PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags)
+    # -----------------------------------------------------------------------
+    # Plugin tests. Headless: no DAW, and no rack needed for all but the last
+    # group, which skips loudly rather than passing on a substitute.
+    # Links the plugin's shared code, so it drives the real processor.
+    # -----------------------------------------------------------------------
+    add_executable(motif-xs-plugin-tests tests/test_plugin.cpp)
+    target_include_directories(motif-xs-plugin-tests PRIVATE motif-xs-app motif-xs-plugin)
+    target_compile_definitions(motif-xs-plugin-tests PRIVATE
+        MOTIFXS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+        JUCE_STANDALONE_APPLICATION=0
+        JucePlugin_Build_VST3=0
+        JucePlugin_Build_AU=0
+        JucePlugin_Build_Standalone=0)
+    target_link_libraries(motif-xs-plugin-tests PRIVATE
+        motif-xs-plugin
+        motif-xs-core
+        juce::juce_audio_utils
+        juce::juce_gui_extra
+        juce::juce_dsp
+        juce::juce_recommended_config_flags)
+    add_test(NAME plugin COMMAND motif-xs-plugin-tests)
 else()
     message(STATUS "external/JUCE not present -- skipping the standalone app")
 endif()

@@ -53,7 +53,7 @@ motif-xs-plugin/   VST3 / AU
 data/              catalogs extracted from Yamaha's documentation
 docs/              protocol and architecture notes
 tools/             extraction and code generation
-tests/             core tests, no hardware needed
+tests/             core and plugin tests, no hardware needed
 ```
 
 Architecture notes are in `docs/`: `protocol.md`, `address-map.md`,
@@ -99,7 +99,9 @@ no parameter table for it. I probed all 22 addresses. Exactly two answer:
 reading, value-range fingerprinting, and the Quick Setup block's ordering. They
 are in `data/parameters_discovered.json`, flagged `source: "hardware"`.
 
-## Verification
+## Testing
+
+### Addresses verified against hardware
 
 Every concrete address read from the rack, reply length compared to the
 documented size:
@@ -118,6 +120,27 @@ documented size:
 Also verified end to end: 10 of 10 randomly sampled voice names read back match
 the catalog, arpeggio numbers 1, 3861 and 6633 round-trip through the 2-byte
 encoding, and all 16 parts resolve bank and program to real voice names.
+
+### Four layers
+
+```sh
+./build/motif-xs-tests            # core: encoding, parsing, catalogs
+./build/motif-xs-plugin-tests     # plugin, headless — no DAW, no rack needed
+tools/validate-plugin.sh          # host validation: auval, pluginval
+./build/motifxs soak 10           # the rack itself
+```
+
+The plugin tests drive the real processor without a host. Each group is banked
+from a failure that actually happened and says which one — a state that cannot
+be restored, a bad capture written back into a project, the device opened twice,
+the arpeggiator relay feeding itself, macros bound to nothing, audio silently
+cleared. Where reproducing a bug would need a rack plugged in, the assertion is
+made against the source instead, which pins the shape that regressed without
+making the suite depend on what is connected.
+
+The hardware group at the end **skips out loud** when no rack is present. A
+missing instrument has to look missing; nothing here quietly passes on a
+simulated one.
 
 ### Soak test
 
