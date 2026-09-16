@@ -4,9 +4,22 @@ A native macOS editor and controller for the Yamaha MOTIF-RACK XS. CLI,
 standalone app, and VST3/AU plugin. The rack stays the sound engine. This makes
 it behave like a modern synth inside Ableton Live.
 
-**Status: done and in daily use.** The plugin passes Apple's `auval`. It stores
-the rack's whole rig in the Live project — the Multi *and* all 16 part voices —
-and puts it back when the project reopens.
+**Status: done and in daily use.** The plugin passes Apple's `auval` and
+`pluginval` at strictness 7. It stores the rack's whole rig in the Live project
+— the Multi *and* all 16 part voices — and puts it back when the project
+reopens.
+
+![The plugin in Ableton Live](docs/images/voice-browser.png)
+
+The status line is the whole point of the project: `project state: 423 blocks,
+16 parts, 16 voices, 29449 bytes`. That is the entire rig sitting in the Live
+set, ready to be put back.
+
+![Waveform and spectrum of the rack's output](docs/images/scope.png)
+
+The scope reads whatever audio reaches the track, so you can see the rack you
+are editing. In the standalone app you pick the interface *and* the stereo pair,
+because a rack on an 18-input desk is rarely on channels 1 and 2.
 
 ## Why
 
