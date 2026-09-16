@@ -8,9 +8,12 @@ emulates the rack or samples it. All the audio comes out of the hardware; this
 drives it, so the rack behaves like a modern, total-recall synth inside Ableton
 Live instead of a box you walk over to and program.
 
-**Status: done and in daily use.** The plugin passes Apple's `auval` and
-`pluginval` at strictness 7. It stores the rack's whole rig in the Live project,
-the Multi and all 16 part voices, and puts it back when the project reopens.
+**Overall status: done and in daily use.**
+
+The plugin stores the rack's whole rig in the Live project, the Multi and all 16
+part voices, and puts it all back when the project reopens. The primary mission
+of the tool, for me, is using it in Ableton and with Ableton's automation
+tools.
 
 ![The plugin in Ableton Live](docs/images/voice-browser.png)
 
