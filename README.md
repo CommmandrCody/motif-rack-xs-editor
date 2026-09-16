@@ -1,19 +1,18 @@
-# Motif Rack XS Editor
+# MOTIF-RACK XS Editor
 
-A native macOS editor and controller for the Yamaha MOTIF-RACK XS. CLI,
-standalone app, and VST3/AU plugin. The rack stays the sound engine. This makes
-it behave like a modern synth inside Ableton Live.
+A native macOS editor and controller for the Yamaha MOTIF-RACK XS: a command
+line tool, a standalone app and a VST3/AU plugin. The rack stays the sound
+engine. This just makes it behave like a modern synth inside Ableton Live.
 
 **Status: done and in daily use.** The plugin passes Apple's `auval` and
-`pluginval` at strictness 7. It stores the rack's whole rig in the Live project
-— the Multi *and* all 16 part voices — and puts it back when the project
-reopens.
+`pluginval` at strictness 7. It stores the rack's whole rig in the Live project,
+the Multi *and* all 16 part voices, and puts it back when the project reopens.
 
 ![The plugin in Ableton Live](docs/images/voice-browser.png)
 
-The status line is the whole point of the project: `project state: 423 blocks,
-16 parts, 16 voices, 29449 bytes`. That is the entire rig sitting in the Live
-set, ready to be put back.
+That status line is the point of the whole project: `project state: 423 blocks,
+16 parts, 16 voices, 29449 bytes`. The entire rig is sitting in the Live set,
+ready to go back on the rack.
 
 ![Waveform and spectrum of the rack's output](docs/images/scope.png)
 
@@ -23,28 +22,32 @@ because a rack on an 18-input desk is rarely on channels 1 and 2.
 
 ## Why
 
-I own this rack. It sounds better than most of what I could buy today, and it
-has been unusable in a modern session for years. The editor Yamaha shipped is a
-PowerPC-era relic. mLAN is dead. Every patch change means walking to the rack.
+I own this rack. It still sounds better than most of what I could buy today, and
+it has been unusable in a modern session for years. The editor Yamaha shipped is
+a PowerPC-era relic. mLAN is dead. Every patch change means walking over to the
+rack.
 
-So the rig lives outside the project. You save a session, come back a month
-later, and the rack is on whatever you left it on. That is the problem worth
-solving: **not editing, recall.** A Multi is a reference to patches, so saving
-one brings back the stored patch and silently throws away every edit you made
-to it. This captures the Multi and all 16 part edit buffers — 423 blocks, about
-29 kB — so the session comes back the way you left it.
+Which means the rig lives outside the project. You save a session, come back a
+month later, and the rack is on whatever you left it on. So the problem worth
+solving is not editing. It is recall.
+
+That turns out to be harder than it sounds. A Multi only stores a *reference* to
+each part's patch, so restoring one brings back the factory patch and silently
+throws away every edit you made to it. This captures the Multi and all 16 part
+edit buffers, 423 blocks and about 29 kB, so the session comes back the way you
+left it.
 
 Everything else grew out of that.
 
 ## Design
 
-**The core knows nothing about UI, JUCE, or VST.** `motif-xs-core` is portable
-C++20 with one platform file. The CLI, app, and plugin are thin shells over it.
+**The core knows nothing about UI, JUCE or VST.** `motif-xs-core` is portable
+C++20 with one platform file. The CLI, app and plugin are thin shells over it.
 
 **Parameters are data, not code.** 1136 parameters live in `data/parameters.json`
-with address, size, encoding, and range, generated into a C++ table. There is
-no SysEx byte array anywhere in the source. Adding a device is a table, not a
-code path.
+with address, size, encoding and range, generated into a C++ table. There is no
+SysEx byte array anywhere in the source. Adding a device means adding a table,
+not a code path.
 
 **One client at a time, enforced.** The rack has a single MIDI port and no
 arbitration, and CoreMIDI merges the output of every client that opens a
@@ -53,13 +56,13 @@ transfer and the rack rejects the sequence. Opening the rack takes an exclusive
 file lock and a second client is refused by name.
 
 **A capture has to be restorable before it can be saved.** The Multi needs its
-header, footer, and all 16 part blocks; a voice needs its Common block.
+header, its footer and all 16 part blocks; a voice needs its Common block.
 Anything short is refused at both ends and never written into a project. A
-capture that half-arrived is worse than none: it looks fine, replaces the good
-one, and only fails when you reopen the session weeks later.
+capture that only half arrived is worse than none at all: it looks fine, it
+replaces the good one, and it fails weeks later when you reopen the session.
 
 ```
-motif-xs-core/     C++20 core — no JUCE, no UI, no VST
+motif-xs-core/     C++20 core. No JUCE, no UI, no VST
 motif-xs-cli/      motifxs command line tool
 motif-xs-app/      standalone app
 motif-xs-plugin/   VST3 / AU
@@ -86,7 +89,7 @@ That last part matters more than it sounds.
 ## What the documentation gets wrong
 
 Yamaha's Data List is good. It is not correct. Five errors, all found by reading
-addresses back off the rack, all of which fail *silently* — the unit ignores
+addresses back off the rack, all of which fail *silently*: the unit ignores
 the message or returns nothing, which looks exactly like a reserved address.
 
 1. **Identity Request is not omni.** The Data List says the unit receives under
@@ -144,7 +147,7 @@ tools/validate-plugin.sh          # host validation: auval, pluginval
 ```
 
 The plugin tests drive the real processor without a host. Each group is banked
-from a failure that actually happened and says which one — a state that cannot
+from a failure that actually happened and says which one: a state that cannot
 be restored, a bad capture written back into a project, the device opened twice,
 the arpeggiator relay feeding itself, macros bound to nothing, audio silently
 cleared. Where reproducing a bug would need a rack plugged in, the assertion is
@@ -166,7 +169,7 @@ motifxs soak 10
 Each round puts a random voice on a random part, makes random edits and reads
 every one back, fires a burst of a dozen or more patch changes at arrow-key
 speed, then captures. Every other round it restores what it just captured and
-captures again — the two agree block for block or the test names what drifted.
+captures again. The two agree block for block, or the test names what drifted.
 It captures your Multi first, restores it at the end, and verifies that too.
 
 ```
@@ -180,7 +183,7 @@ result           : PASS
 
 Every bug that mattered here only showed up against hardware under load. The
 worst one opened the rack twice, so every MIDI packet arrived twice and spliced
-bulk transfers into nonsense — 209-byte messages where the largest real block is
+bulk transfers into nonsense: 209-byte messages where the largest real block is
 107. Remove the fix and the soak test catches it in two rounds.
 
 ## Requirements
@@ -192,8 +195,8 @@ bulk transfers into nonsense — 209-byte messages where the largest real block 
 | Build | CMake 3.21+, C++20; JUCE 8 for the app and plugin |
 
 **Windows is coming.** The whole project is portable C++20 except
-`motif-xs-core/src/device.cpp`, which is CoreMIDI — one file behind the `Device`
-interface, no changes anywhere else. I am building a Windows host with the
+`motif-xs-core/src/device.cpp`, which is CoreMIDI. One file behind the `Device`
+interface, no changes anywhere else. I'm building a Windows host with the
 tooling on it so this gets tested properly rather than shipped blind.
 
 Binaries here are unsigned, so Gatekeeper will block them on any Mac other than
@@ -221,7 +224,7 @@ cmake --build build -j8
 CMake skips those targets if `external/JUCE` is absent.
 
 Two traps worth knowing. `CMAKE_OSX_ARCHITECTURES` must be set *before*
-`project()` — afterwards the cache entry exists and a non-`FORCE` `set()` is
+`project()`. Afterwards the cache entry exists and a non-`FORCE` `set()` is
 ignored, and a Homebrew CMake under Rosetta then quietly builds Intel binaries
 on Apple Silicon. And after a macOS major upgrade, `xcode-select` can point at
 an Xcode too old for the new OS, at which point `git` and `clang` both fail with
@@ -251,7 +254,7 @@ The app auto-connects to Port1 and reads the rack's live state.
 * **SAVE / LOAD** — the whole rig to a file, Multi and all 16 part voices
 * **SAVE PATCH / LOAD PATCH** — an edited voice lives in a part's edit buffer
   and dies at the next patch change. Save it whole, put it on any part. The rack
-  manages 16 of these and only inside one Multi. As files they are unlimited
+  manages 16 of these, and only inside one Multi. As files they are unlimited.
 * **THRU** — forward the arpeggiator to another instrument
 * **ARP → DAW** — relay the arpeggiator into the host track, no IAC bus needed
 * **PANIC** — all notes off, arp switch and hold cleared on all 16 parts
@@ -293,16 +296,16 @@ python3 tools/extract_arpeggios.py
 python3 tools/gen_tables.py
 ```
 
-The PDFs are not redistributed — they are in `.gitignore`. Every file under
+The PDFs are not redistributed; they are in `.gitignore`. Every file under
 `data/` regenerates from your own copy, which is also how you would check my
 work.
 
 ## Known issue
 
 Entering Multi mode over SysEx does not work on my unit. Writes of every
-documented value to both candidate addresses are accepted and do nothing; the
-front panel button works. Leave the rack in Multi, which `Power on Mode = multi`
-makes permanent.
+documented value to both candidate addresses are accepted and then do nothing,
+while the front panel button works fine. Leave the rack in Multi, which
+`Power on Mode = multi` makes permanent.
 
 ## Contributing
 
@@ -313,7 +316,7 @@ hardware. The tools in `tools/` are written to be pointed at a different PDF.
 
 Second most useful: the Windows MIDI backend, if you beat me to it.
 
-Keep the discipline either way — read every address back off the real
+Keep the discipline either way. Read every address back off the real
 instrument before writing it down, and mark what the documentation gets wrong.
 It gets things wrong more than you would expect.
 
@@ -321,7 +324,7 @@ It gets things wrong more than you would expect.
 
 **AGPL-3.0**, because this links JUCE, which is dual-licensed AGPLv3 or
 commercial. If you build on this, your work inherits those terms. The VST3 SDK
-has been MIT since late 2025, so it imposes nothing.
+has been MIT since late 2025, so it imposes nothing of its own.
 
 MOTIF-RACK XS, MOTIF and Yamaha are trademarks of Yamaha Corporation. This
 project is not affiliated with or endorsed by Yamaha.
