@@ -1,8 +1,11 @@
 # MOTIF-RACK XS Editor
 
 A native macOS editor and controller for the Yamaha MOTIF-RACK XS: a command
-line tool, a standalone app and a VST3/AU plugin. The rack stays the sound
-engine. This just makes it behave like a modern synth inside Ableton Live.
+line tool, a standalone app and a VST3/AU plugin.
+
+It makes no sound of its own. Nothing here emulates the rack or samples it. All
+the audio still comes out of the hardware; this drives it, so the rack behaves
+like a modern synth inside Ableton Live instead of a box you walk over to.
 
 **Status: done and in daily use.** The plugin passes Apple's `auval` and
 `pluginval` at strictness 7. It stores the rack's whole rig in the Live project,
