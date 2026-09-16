@@ -153,6 +153,22 @@ Also verified end to end: 10 of 10 randomly sampled voice names read back match
 the catalog, arpeggio numbers 1, 3861 and 6633 round-trip through the 2-byte
 encoding, and all 16 parts resolve bank and program to real voice names.
 
+### Built with
+
+| | |
+|---|---|
+| Language | C++20. The core is portable; one file is CoreMIDI |
+| Build | CMake 3.21+, AppleClang |
+| UI and plugin | JUCE 8.0.4, VST3 SDK (MIT since late 2025) |
+| Data extraction | Python 3, `pdftotext` from Poppler |
+| Unit tests | hand-rolled, no framework, run by CTest |
+| Host validation | Apple `auval`, Tracktion `pluginval` |
+| Hardware test | `motifxs soak`, built into the CLI |
+
+No test framework, no mocking library and no dependency beyond JUCE. A rack
+either answers or it does not, and a fake one that answers correctly would only
+prove the fake works.
+
 ### Four layers
 
 ```sh
@@ -173,6 +189,17 @@ making the suite depend on what is connected.
 The hardware group at the end **skips out loud** when no rack is present. A
 missing instrument has to look missing; nothing here quietly passes on a
 simulated one.
+
+Where it stands as of v1.0.0:
+
+| | |
+|---|---|
+| Core tests | all passing |
+| Plugin tests | 61 checks, 0 failures |
+| `auval` | passed |
+| `pluginval` | passed at strictness 7 |
+| Soak, 10 rounds | 60 writes verified, 0 disagreed, 0 blocks drift |
+| Addresses verified on hardware | 859, with 0 size mismatches |
 
 ### Soak test
 
@@ -215,9 +242,15 @@ bulk transfers into nonsense: 209-byte messages where the largest real block is
 interface, no changes anywhere else. I'm building a Windows host with the
 tooling on it so this gets tested properly rather than shipped blind.
 
-Binaries here are unsigned, so Gatekeeper will block them on any Mac other than
-the one that built them until you allow it in System Settings → Privacy &
-Security. Building from source avoids that.
+Binaries are attached to the release, universal and **unsigned**: I have no
+Developer ID yet, so Gatekeeper will refuse to open them until you allow it once
+in System Settings → Privacy & Security, or run
+
+```sh
+xattr -dr com.apple.quarantine "/Library/Audio/Plug-Ins/VST3/Motif Rack XS.vst3"
+```
+
+Building from source avoids the whole business.
 
 ## Build
 
