@@ -10,34 +10,43 @@ the Multi *and* all 16 part voices, and puts it back when the project reopens.
 
 ![The plugin in Ableton Live](docs/images/voice-browser.png)
 
-That status line is the point of the whole project: `project state: 423 blocks,
-16 parts, 16 voices, 29449 bytes`. The entire rig is sitting in the Live set,
-ready to go back on the rack.
+## Why
+
+I own this rack, and it is still a serious instrument.
+
+**1217 factory voices across 17 categories, and they are properly made.** Not
+filler. Yamaha built these when they were still shipping flagship workstations,
+and the pianos, the electric pianos, the pads and the analogue emulations hold
+up against anything I could buy today.
+
+**The arpeggiator is the part people miss.** 6633 patterns, not simple
+up-down-random ones but recorded phrases: 1909 drum and percussion, 984 bass,
+654 plucked guitar, 607 muted guitar, plus sequences, hybrids and control
+patterns. 1012 of them carry random SFX variation, and there are 6/8, 3/4 and
+9/8 patterns in there alongside the 4/4. Each part holds **five of them at once**
+on SF1 to SF5, switchable while you play, so one part carries a performance
+rather than a riff.
+
+What it never had was any way to live in a modern session. The editor Yamaha
+shipped is a PowerPC-era relic. mLAN is dead. Every patch change means walking
+over to the rack.
+
+So the rig ends up outside the project. You save a session, come back a month
+later, and the rack is on whatever you left it on. I wanted total recall in
+Ableton Live, and that is what this does.
+
+It is harder than it sounds. A Multi only stores a *reference* to each part's
+patch, so restoring one brings back the factory patch and silently throws away
+every edit you made to it. This captures the Multi and all 16 part edit buffers,
+423 blocks and about 29 kB, so the session comes back the way you left it.
+
+Everything else grew out of that.
 
 ![Waveform and spectrum of the rack's output](docs/images/scope.png)
 
 The scope reads whatever audio reaches the track, so you can see the rack you
 are editing. In the standalone app you pick the interface *and* the stereo pair,
 because a rack on an 18-input desk is rarely on channels 1 and 2.
-
-## Why
-
-I own this rack. It still sounds better than most of what I could buy today, and
-it has been unusable in a modern session for years. The editor Yamaha shipped is
-a PowerPC-era relic. mLAN is dead. Every patch change means walking over to the
-rack.
-
-Which means the rig lives outside the project. You save a session, come back a
-month later, and the rack is on whatever you left it on. So the problem worth
-solving is not editing. It is recall.
-
-That turns out to be harder than it sounds. A Multi only stores a *reference* to
-each part's patch, so restoring one brings back the factory patch and silently
-throws away every edit you made to it. This captures the Multi and all 16 part
-edit buffers, 423 blocks and about 29 kB, so the session comes back the way you
-left it.
-
-Everything else grew out of that.
 
 ## Design
 
@@ -248,7 +257,8 @@ motifxs panic              # all notes off, arp cleared
 The app auto-connects to Port1 and reads the rack's live state.
 
 * Voice browser — 1217 voices in collapsible categories, searchable, bank filter
-* Arp browser — 6633 types filtered by text, category, metre and tempo
+* Arp browser — 6633 patterns filtered by text, category, metre and tempo,
+  assignable to any of the part's five SF slots
 * Nine PERFORM macros bound to Multi Part offsets, so they move all eight
   elements together the way the rack's own knobs do
 * **SAVE / LOAD** — the whole rig to a file, Multi and all 16 part voices
