@@ -5,3 +5,4 @@ external/JUCE/
 reference/*.pdf
 reference/*.txt
 scratch/
+.vscode/
